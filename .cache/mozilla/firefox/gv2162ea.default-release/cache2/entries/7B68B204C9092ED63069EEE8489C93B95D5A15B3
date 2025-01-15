@@ -1,0 +1,1981 @@
+var $main_layout_attributes = $("#main_layout_attributes");
+
+function getFormConfigFromDOM($dom) {
+    if ($.trim($dom.text()) != "") {
+        return $.parseJSON($dom.text());
+    }
+}
+
+function getFormConfigFromAPI(url, data, callback) {
+    $.ajax({
+        type: 'POST',
+        dataType: 'json',
+        data: data,
+        url: url
+    }).done(function (data) {
+        callback(data)
+    });
+}
+
+function alpacaForm() {
+    this.init = function ($formDiv, $render) {
+        this.$form = $formDiv;
+        this.$formJson = this.$form ? this.$form.find('.form_json') : null;
+        this.$renderDiv = $render ? $render : this.$form;
+        this.itis = [];
+        this.textEditors = [];
+    }
+
+    this.setLanguage = function (lang) {
+        this.language = lang
+    }
+
+    this.setValidator = function (formConf, i18n) {
+        Object.keys(formConf["schema"]["properties"]).forEach(function (key) {
+            var pattern = formConf["schema"]["properties"][key]["pattern"];
+            if (pattern) {
+                formConf["schema"]["properties"][key]["pattern"] = new RegExp(pattern);
+            }
+            var validation = formConf["options"]["fields"][key]["validator"],
+                validationFunction, failed_message;
+            switch (validation) {
+                case "finnish_id_validator":
+                    validationFunction = finnishIdValidation;
+                    failed_message = i18n_terms("invalid_social_id", i18n);
+                    break;
+                case "swedish_id_validator":
+                    validationFunction = null;  // Checksum to be implemented
+                    failed_message = i18n_terms("invalid_social_id", i18n);
+                    break;
+                case "iban_validator":
+                    validationFunction = IBANValidation;
+                    failed_message = i18n_terms("invalid_iban", i18n);
+            }
+            if (validationFunction) {
+                formConf["options"]["fields"][key]["validator"] = function (callback) {
+                    callback(validationFunction(this.getValue(), failed_message, formConf["schema"]["properties"][key]))
+                }
+            }
+        });
+        return formConf
+    }
+
+    this.defaultPostRender = function (control, updateFormJsonCb) {
+        var $form = this.$form ? this.$form : control.domEl.closest('form'),
+            $formJson = this.$formJson ? this.$formJson : $form.find('.form_json'),
+            language = this.language,
+            itis = this.itis,
+            textEditors = this.textEditors;
+        moveElements();
+        initSelect2InAlpaca(control, language);
+        initSpectrumInAlpaca(control);
+        $(".date_widget_class input").prop('readonly', true);
+
+        $(".alpaca-control.checkbox").each(function () {
+            $(this).find('input').attr('name', $(this).attr('name'));
+            $(this).find('input').attr('value', $(this).find('input').attr('data-checkbox-value'));
+        });
+
+        $('.alpaca-field-checkbox div:empty').remove();
+        initAlpacaTogglers();
+
+        $("#disclaimer").html("");
+        initSubmitButtonValidation(control);
+        $form.find('.checkbox_widget_class.alpaca-required').each(function (i, container) {
+            var $label = $(container).find('label');
+
+            if (!$label.find('.alpaca-required-indicator').length) {
+                $label.append('<span class="alpaca-icon-required glyphicon glyphicon-star alpaca-required-indicator"></span>');
+            }
+        });
+
+        function validateControl() {
+            if (this.field.hasClass('alpaca-invalid')) {
+                this.refreshValidationState();
+            }
+        }
+
+        function updateFormJson(e) {
+            if (!e) {
+                return;
+            }
+            if ($formJson.length) {
+                if (e.type === 'submit') {
+                    itis.forEach(function (iti) {
+                        $(iti.a).val(iti.getNumber());
+                    });
+                }
+                var value = control.getValue();
+                textEditors.forEach(function (editor) {
+                    value[editor.name] = CKEDITOR.instances[editor.id].getData();
+                });
+                $formJson.val(JSON.stringify(value));
+
+                if (e !== "init" && typeof updateFormJsonCb === 'function') {
+                    updateFormJsonCb();
+                }
+            }
+        }
+
+        function moveElements() {
+            var $applicantImage = $('#applicant-image'),
+                $videoQuestions = $('#video-questions'),
+                schemaProperties = control.schema.properties,
+                hasProfileImage = _.has(schemaProperties, 'applicant_image') || _.has(schemaProperties, 'talent_image');
+
+            // Applicant image
+            if (hasProfileImage && $applicantImage.length) {
+                var $wrapElements = $form.find('.alpaca-container-item[data-alpaca-container-item-name="first_name"],\
+                                                .alpaca-container-item[data-alpaca-container-item-name="last_name"],\
+                                                .alpaca-container-item[data-alpaca-container-item-name="email"],\
+                                                .alpaca-container-item[data-alpaca-container-item-name="telephone"]');
+
+                $wrapElements.wrapAll('<div class="alpaca-container-item"><div class="row"><div class="col-xs-12 col-sm-7" id="basic-information-col"></div></div></div>');
+
+                var $applicantImageTarget = $form.find('#basic-information-col');
+                $applicantImage.insertBefore($applicantImageTarget).show();
+            }
+
+            // Video questions
+            if ($videoQuestions.length) {
+                var $videoQuestionsTarget = $form.find('.alpaca-container-item[data-alpaca-container-item-name="applicant_attachment3"]');
+
+                if (!$videoQuestionsTarget.length) {
+                    $videoQuestionsTarget = $form.find('.alpaca-container-item').last();
+                }
+
+                $videoQuestions.insertAfter($videoQuestionsTarget).show();
+            }
+
+            $form.find('.alpaca-container-item').each(function () {
+                var $item = $(this),
+                    $itemCol = $item.find('.col-sm-9'),
+                    $itemLabel = $item.find('label.control-label');
+
+                if (!$itemLabel.length) {
+                    $itemCol.addClass('col-sm-offset-3');
+                }
+            });
+        }
+        control.on('change', updateFormJson);
+        $form.on('submit', updateFormJson);
+        updateFormJson('init');
+
+        $form.find("input[type='file']").on('change', function () {
+            var val = $(this).val(),
+                child = control.childrenById[$(this).attr("id")];
+
+            if (child) {
+                child.setValue(val);
+            }
+        })
+
+        control.children.forEach(function (child) {
+            // if Select all option in checkbox list
+            if (child.options.select_all) {
+                const { select_all_label } = child.options;
+                child.field.find('.checkbox').wrapAll('<div class="checkboxes-inline"></div');
+                $(`.alpaca-container-item[data-alpaca-container-item-name="${child.name}"] .alpaca-control-label`).after(`
+                    <div class="alpaca-control checkbox checkbox-select-all" name="select_all_fields_to_share">
+                        <label>
+                            <input type="checkbox" data-checkbox-index="100" id="${child.name}_select_all" data-checkbox-value="select_all" class="" name="fields_to_share" value="select_all">
+                            ${select_all_label}
+                        </label>
+                    </div>
+                    <hr class="spacing-vertical-s">
+                `);
+                addListenerOnSelectAllCheckboxChanged($("#"+child.name+"_select_all"), child.name);
+            }
+            if (child.options.type == "ckeditor") {
+                if (CKEDITOR.instances[child.id]) {
+                    CKEDITOR.instances[child.id].destroy()
+                }
+                replaceWithCKEditor(child.id);
+                textEditors.push(child);
+            }
+            if (child.type === 'phone' && control.view.type !== 'display') {
+                var options = {
+                    utilsScript: 'https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.12/js/utils.min.js',
+                    autoPlaceholder: 'aggressive',
+                    initialCountry: 'fi',
+                    preferredCountries: ['fi'],
+                    customContainer: 'responsive-block'
+                };
+                var iti = window.intlTelInput(child.control[0], _.merge(options, child.options.international_phone_options));
+                itis.push(iti);
+            }
+            checkMaxItem(child);
+            initDurationWidget(child);
+            initTotalDurationWidget(child);
+            control.on("ready", initSelect2InAlpaca);
+            child.on("keyup", _.debounce(validateControl, 300, {'maxWait': 1000}));
+            child.on("add", function (c) {
+                initSelect2InAlpaca(c, language);
+                initDurationWidget(c);
+                initTotalDurationWidget(c);
+                checkMaxItem(child);
+
+                c.children.forEach((cField) => {
+                    initDurationWidget(cField);
+                    initTotalDurationWidget(cField);
+                });
+            });
+            child.on("remove", function () {
+                checkMaxItem(child)
+            });
+            if (child.field.hasClass("date_widget_class")) {
+                var dt = child.data;
+                if (dt) {
+                    var localized = localizedDate(dt);
+                    if (localized !== "Invalid date") {
+                        child.control.text(localized);
+                    }
+                }
+            }
+            if (child.type === 'geocoord') {
+                onGoogleMapsReady(function() {
+                    geoLocationWidgetListener(child);
+                });
+            }
+            if (child.children) {
+                child.children.forEach(function (nested) {
+                    initSelect2InAlpaca(nested, language);
+                    initDurationWidget(nested);
+                    initTotalDurationWidget(nested);
+                });
+            }
+            showDisclaimer(child, $form);
+        });
+
+        var attachmentOverlaysCount = $('.attachment-overlay').length;
+        if (attachmentOverlaysCount > 1) {
+            $('.attachment-overlay').each(function (i, overlay) {
+                var $overlay = $(overlay);
+                var prevButton = '<a class="spacing-horizontal overlay-navigation-link" data-navigation_direction="-1">\
+                                <span class="icon-svg-arrow-narrow-left"></span>\
+                                Previous\
+                            </a>';
+                var nextButton = '<a class="spacing-horizontal overlay-navigation-link" data-navigation_direction="1">\
+                                Next\
+                                <span class="icon-svg-arrow-narrow-right"></span>\
+                            </a>';
+
+                $overlay.attr('data-overlay_index', i);
+
+                if (i === 0) {
+                    $overlay.find('.overlay-navigation').html(nextButton);
+                } else if (i + 1 === attachmentOverlaysCount) {
+                    $overlay.find('.overlay-navigation').html(prevButton);
+                } else {
+                    $overlay.find('.overlay-navigation').html(prevButton + nextButton);
+                }
+            });
+        }
+    }
+
+    this.postRender = function () {
+        var self = this;
+        return function (control) {
+            self.defaultPostRender(control);
+        }
+    }
+
+    this.render = function () {
+        this.$renderDiv.alpaca('destroy');
+        if (this.formConf) {
+            this.formConf["postRender"] = this.postRender();
+            if (this.$renderDiv.closest('.alpaca-template-cv').length) {
+                const formData = this.formConf.data;
+                let alpacaHtml = '';
+
+                function getEmploymentSectionHtml({ heading, headingInfo, data, startDateKey, endDateKey, titleHtml, subtitleHtml, descriptionHtml, hideDuration }) {
+                    return `
+                        <div class="alpaca-template-cv-section">
+                            ${heading ? `
+                                <h4>
+                                    ${sanitizeTheHtml(heading)}
+                                </h4>
+                            ` : ''}
+                            ${data.map((d) => {
+                                const startDate = d[startDateKey] ? moment(d[startDateKey]) : '';
+                                const endDate = d[endDateKey] ? moment(d[endDateKey]) : moment();
+                                return `
+                                    <div class="employment-info-container">
+                                        <div class="col">
+                                            <div class="employment-years">
+                                                ${startDate ? `
+                                                    ${startDate.year()} - ${d[endDateKey] ? endDate.year() : global_i18n('present')}
+                                                ` : ''}
+                                            </div>
+                                            ${!hideDuration ?
+                                                `<div class="employment-duration">
+                                                    ${startDate ? `(${startDate.from(endDate, true)})` : ''}
+                                                </div>`
+                                            : ''}
+                                        </div>
+                                        <div class="col">
+                                            ${titleHtml ? `<div class="employment-title">${titleHtml(d)}</div>` : ''}
+                                            ${subtitleHtml ? `<div class="employment-subtitle">${subtitleHtml(d)}</div>` : ''}
+                                            ${descriptionHtml ? `<div class="employment-description">${descriptionHtml(d)}</div>` : ''}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+
+                for (const key in formData) {
+                    const data = formData[key];
+                    const props = this.formConf.schema.properties[key];
+
+                    if (key === 'summary') {
+                        alpacaHtml += `
+                            <div class="alpaca-template-cv-section">
+                                <p>${sanitizeTheHtml(data)}</p>
+                            </div>
+                        `;
+                    } else if (key === 'employments' || key === 'draft_employments') {
+                        let totalYears = 0;
+                        data.forEach((d) => {
+                            const startDate = d.dates_start ? moment(d.dates_start) : '';
+                            const endDate = d.dates_end ? moment(d.dates_end) : moment();
+                            totalYears += endDate.diff(startDate, 'years');
+                        });
+                        alpacaHtml += getEmploymentSectionHtml({
+                            heading: props.title,
+                            headingInfo: global_i18n('x_years').replace('{}', totalYears),
+                            data,
+                            startDateKey: 'dates_start',
+                            endDateKey: 'dates_end',
+                            titleHtml: (d) => sanitizeTheHtml(d.title),
+                            subtitleHtml: (d) => {
+                                return `
+                                    ${sanitizeTheHtml(d.company_name)}
+                                    ${d.location ? `(${sanitizeTheHtml(d.location)})` : ''}
+                                `;
+                            },
+                            descriptionHtml: (d) => sanitizeTheHtml(d.description),
+                        });
+                    } else if (key === 'education' || key === 'draft_education') {
+                        alpacaHtml += getEmploymentSectionHtml({
+                            heading: props.title,
+                            headingInfo: sanitizeTheHtml(data[0].degree_name),
+                            data,
+                            startDateKey: 'dates_start',
+                            endDateKey: 'dates_end',
+                            titleHtml: (d) => `${sanitizeTheHtml(d.degree_name)} ${sanitizeTheHtml(d.field_of_study)}`,
+                            subtitleHtml: (d) => {
+                                return `
+                                    ${sanitizeTheHtml(d.grade)}
+                                    ${d.school_name ? `(${sanitizeTheHtml(d.school_name)})` : ''}
+                                `;
+                            },
+                            hideDuration: true,
+                        });
+                    } else if (key === 'highlights') {
+                        alpacaHtml += `
+                            <div class="alpaca-template-cv-section">
+                                <h4>${sanitizeTheHtml(props.title)}</h4>
+                                <ul>
+                                    ${data.map((d) => `<li>${sanitizeTheHtml(d)}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    }
+                }
+                this.$renderDiv.html(`<div class="alpaca-template-cv-container">${alpacaHtml}</div>`);
+                return;
+            }
+            this.$renderDiv.alpaca(this.formConf);
+        }
+    }
+
+    this.updateJsonConfiguration = function (config) {
+        if (config) {
+            for (var key in config["schema"]["properties"]) {
+                if (key === "address" && Object.keys(config["schema"]["properties"]).includes("geocoord")) {
+                    config["options"]["fields"][key]["type"] = "geocoord";
+                }
+            }
+            this.formConf = this.setValidator(config, global_i18n_object)
+        }
+        this.render();
+    }
+    
+    this.reset = function () {
+        const form = $(this.$renderDiv).alpaca('get');
+        if (form) {
+            form.schema.data = {};
+            form.setValue({});
+            form.refresh();
+        }
+    };
+}
+
+function showDisclaimer(control) {
+    const options = control["options"] && control["options"]["smallprint"],
+        $disclaimer = $("#disclaimer");
+    if (options && $disclaimer) {
+        let current_html = $disclaimer.html();
+        current_html += "<p>" + options["description"] + "</p>";
+        $disclaimer.html(current_html);
+    }
+}
+
+function checkMaxItem(control) {
+    var $button = control.domEl.find(".alpaca-array-toolbar[data-alpaca-array-toolbar-field-id='" + control.id + "']")
+    if (control.children && control.schema.maxItems) {
+        $button.toggle(control.children.length < control.schema.maxItems)
+    }
+}
+
+$.alpaca.Fields.DateTimeWidget = $.alpaca.Fields.TextField.extend({
+    getFieldType: function () {
+        return "jquery-datetime-picker";
+    },
+    afterRenderControl: function (model, callback) {
+        var self = this;
+        callback();
+        if (!self.isDisplayOnly()) {
+            var datetimepickerOptions = {
+                dateFormat: "yy-mm-dd",
+                timeFormat: "HH:mm",
+                controlType: 'select',
+                oneLine: true
+            }
+            $(self.control).datetimepicker(_.merge(datetimepickerOptions, self.options.datetimepickerOptions));
+        }
+    }
+
+})
+Alpaca.registerFieldClass("jquery-datetime-picker", Alpaca.Fields.DateTimeWidget);
+
+
+$.alpaca.Fields.NPSWidget = $.alpaca.Fields.TextField.extend({
+        getFieldType: function () {
+            return "nps-score-widget";
+        },
+        afterRenderControl: function (model, callback) {
+            var self = this;
+            callback();
+            let container = self.field.find(".vote-container");
+            let voteNum = self.options["nps_range"] || 10;
+            for (var i = 0; i < voteNum + 1; i++) {
+                let voteBox = '<div class="vote-box ' + self.id + '-vote-box" data-index=' + i + '>' +
+                    '<span>' + i + '</span>' +
+                    '</div>';
+                container.append(voteBox);
+            }
+            $('.' + self.id + '-vote-box').on("click", function () {
+                let clicked = this.dataset.index;
+                $('.' + self.id + '-vote-box').each(function () {
+                    if (clicked != this.dataset.index) $(this).removeClass("active")
+                });
+                if ($(this).toggleClass("active").hasClass("active")) {
+                    self.control.val(this.dataset.index);
+                } else self.control.val(null);
+            });
+        }
+    }
+)
+Alpaca.registerFieldClass("nps-score-widget", Alpaca.Fields.NPSWidget);
+
+
+$.alpaca.Fields.GeoCoordField = $.alpaca.Fields.TextField;
+Alpaca.registerFieldClass("geocoord", Alpaca.Fields.GeoCoordField);
+
+
+$.alpaca.Fields.SelectWithDynamicEnums = $.alpaca.Fields.SelectField.extend({
+    getFieldType: function () {
+        return "select-with-dynamic-enums";
+    },
+    afterRenderControl: function (model, callback) {
+        var self = this;
+        callback();
+        if (self.data && self.data.length > 0 && self.isDisplayOnly()) {
+            var data = [];
+            self.data.forEach(function (item) {
+                data.push(item["value"])
+            });
+            $.get(self.options["select2Options"]["ajax"]["url"], {"values[]": data}, function (result) {
+                var result_labels = [];
+                if (result["results"]) {
+                    result["results"].forEach(function (item) {
+                        result_labels.push(item.text);
+                    });
+                }
+                self.control.text(result_labels.join(", "));
+            });
+
+        }
+        $(self.control).change(function (e) {
+            var val = $(self.control).val();
+            // set value silently
+            self.setValue(val, true);
+            self.refreshValidationState();
+            self.triggerWithPropagation("change");
+        });
+    }
+});
+Alpaca.registerFieldClass("select-with-dynamic-enums", Alpaca.Fields.SelectWithDynamicEnums);
+Alpaca.regexps.phone = /^\+[1-9]\d{3,14}$/; // RegEx Matching for E.164 https://www.twilio.com/docs/glossary/what-e164#regex-matching-for-e164
+
+function initSelect2InAlpaca(control, lang) {
+    function doInitSelect2() {
+        control.children.forEach(function (child, index) {
+            if ($(child.field[0]).hasClass("alpaca_select2_widget")) {
+                var $select = $(child.field[0]).find("select"),
+                    options = child.options && child.options.select2Options || {},
+                    data = [];
+                $select.select2(options);
+                child.data.forEach(function (item) {
+                    data.push(item["value"])
+                });
+                getLabelsForSelect2Values(options.ajax && options.ajax.url, data, $select)
+            }
+        })
+    }
+
+    if (control.children) {
+        var $i18nSelectJs = $('#select2-i18n-js');
+        if (lang && $i18nSelectJs.length) {
+            $.getScript($i18nSelectJs.data('src').replace('{}', lang), doInitSelect2)
+        } else {
+            doInitSelect2()
+        }
+    }
+}
+
+function initDurationWidget(self) {
+    if (self.getFieldType() !== "duration-widget") {
+        return;
+    }
+
+    const parentField = self.getParent();
+    const startField = parentField.childrenByPropertyId[self.startFieldName];
+    const dateFormatCStyle = startField.schema?.date_config?.format;
+    if (dateFormatCStyle) {
+        self.dateFormat = convertCStyleToMomentFormat(dateFormatCStyle);
+    }
+    const endField = parentField.childrenByPropertyId[self.endFieldName];
+
+    if (startField && endField) {
+        // Listen for changes on start_date and end_date
+        startField.control.on("change", function () {
+            self.calculateDuration(startField.getValue(), endField.getValue());
+        });
+
+        endField.control.on("change", function () {
+            self.calculateDuration(startField.getValue(), endField.getValue());
+        });
+    }
+}
+
+function initTotalDurationWidget(self) {
+    if (self.getFieldType() !== "total-duration-widget") {
+        return;
+    }
+    
+    const parentField = self.getParent();
+    const targetField = parentField.childrenByPropertyId[self.dataCollectionField];
+
+    if (targetField) {
+        targetField.on("add", function () {
+            self.attachListenersToCollectionRows(targetField);
+        });
+
+        targetField.on("remove", function () {
+            self.calculateTotal();
+        });
+
+        self.attachListenersToCollectionRows(targetField);
+    }
+}
+
+// GeoLocation Places
+function geoLocationWidgetListener(control) {
+    const options = control["options"]["geoOptions"],
+        id = control["id"];
+    const $lat = $("input[name=geocoord_latitude]") && $("input[name=geocoord_latitude]")[0],
+        $lon = $("input[name=geocoord_longitude]") && $("input[name=geocoord_longitude]")[0];
+    if (id == "address" && $lat) {
+        const address_input = $(control.field[0]).find("input");
+        addListenerForGeoLocation(address_input[0], options, function (place) {
+            $lat.value = place.geometry.location.lat();
+            $lon.value = place.geometry.location.lng();
+            var $hometown = $("input[name=hometown]") && $("input[name=hometown]")[0],
+                $postoffice = $("input[name=post_office]") && $("input[name=post_office]")[0],
+                $country = $("input[name=country]") && $("input[name=country]")[0];
+            if ($hometown) {
+                $hometown.value = place.locality;
+            }
+            if ($postoffice) {
+                $postoffice.value = place.postal_code;
+            }
+            if ($country) {
+                $country.value = getCountryISO3(place.country.toUpperCase());
+            }
+        });
+    }
+}
+
+function addListenerForGeoLocation(element, options, callback) {
+    const types = {
+        "all": [],
+        "address": ["address"],
+        "establishment": ["establishment"],
+        "geocode": ["geocode"]
+    };
+    const autocomplete = new google.maps.places.Autocomplete(element);
+    autocomplete.setTypes(types['all']);
+    autocomplete.setFields(["address_components", "geometry", "icon", "name"]);
+    if (options) {
+        autocomplete.setComponentRestrictions(options["restrictions"]);
+    }
+    autocomplete.addListener("place_changed", function () {
+        const place = autocomplete.getPlace();
+        if (!place.geometry) {
+            window.alert("No details available for input: '" + place.name + "'");
+            return;
+        }
+
+        let address = "";
+        if (place.address_components) {
+            const postal_code = place.address_components.find(function (item) {
+                return (item.types && item.types.indexOf('postal_code') !== -1)
+            });
+            const locality = place.address_components.find(function (item) {
+                return (item.types && item.types.indexOf('locality') !== -1)
+            });
+            const country = place.address_components.find(function (item) {
+                return (item.types && item.types.indexOf('country') !== -1)
+            });
+            if (postal_code || locality) {
+                place.postal_code = postal_code ? postal_code.short_name : "";
+                place.locality = locality ? locality.short_name : "";
+                place.country = country ? country.short_name : "";
+            }
+            address = [
+                (place.address_components[0] &&
+                    place.address_components[0].short_name) ||
+                "",
+                (place.address_components[1] &&
+                    place.address_components[1].short_name) ||
+                "",
+                (place.address_components[2] &&
+                    place.address_components[2].short_name) ||
+                "",
+            ].join(" ");
+        }
+
+        place.value = element.value;
+        place.address = address;
+        callback(place);
+    });
+}
+
+function initSpectrumInAlpaca(control) {
+    function hexIsLight(color) {
+        const hex = color.replace('#', '');
+        const cR = parseInt(hex.substring(0, 0 + 2), 16);
+        const cG = parseInt(hex.substring(2, 2 + 2), 16);
+        const cB = parseInt(hex.substring(4, 4 + 2), 16);
+        const brightness = ((cR * 299) + (cG * 587) + (cB * 114)) / 1000;
+        return brightness > 155;
+    }
+
+    function updateHexPreview($spPreviewInner, hexColor) {
+        $spPreviewInner.css('color', (hexIsLight(hexColor) ? 'inherit' : '#fff'));
+        $spPreviewInner.text(hexColor.toUpperCase());
+    }
+
+    const $container = control.domEl || control;
+    const isHtmlForm = !!$container.closest('form').length,
+        $form = isHtmlForm ? $container.closest('form') : $container.closest('.ta-form');
+    const $color = $form.find('input[type="color"]')
+
+    $.each($color, function (index, value) {
+        const $input = $(value)
+        const inputValue = $input.attr("name")
+        $('label[for="' + inputValue + '"]').attr('for', '');
+        $input.wrap('<div class="colorpicker-container"></div>').spectrum({
+            preferredFormat: "hex",
+            showInput: true,
+            showPalette: true,
+            palette: [["black"], ["white"], ["red"], ["rgb(0, 255, 0)"], ["rgb(0, 0, 255)"]],
+            showAlpha: true,
+            change: function (color) {
+                const hexColor = color.toHexString();
+                const $container = $input.closest('.colorpicker-container');
+                $input.val(hexColor);
+                updateHexPreview($container.find('.sp-preview-inner'), hexColor);
+            }
+        });
+        const $container = $input.closest('.colorpicker-container');
+        $container.find('.sp-preview').after(`
+            <div class="ta-sp-preview-label">${global_i18n('select_color', global_i18n_object)}</div>
+        `);
+        updateHexPreview($container.find('.sp-preview-inner'), $input.spectrum('get').toHexString());
+    })
+}
+
+function addListenerOnSelectAllCheckboxChanged(ele, name) {
+    const checkboxSelector = `input[type="checkbox"][name="${name}"]:not([value="select_all"])`;
+
+    function checkSelectAllCheckboxState() {
+        const checkboxesArray = [...document.querySelectorAll(checkboxSelector)];
+        const allChecked = checkboxesArray.every((checkbox) => checkbox.checked);
+        const someChecked = checkboxesArray.some((checkbox) => checkbox.checked);
+        ele.prop('checked', someChecked);
+        ele.prop('indeterminate', !allChecked && someChecked);
+    }
+
+    checkSelectAllCheckboxState();
+
+    ele.on('change', function(e) {
+        const isChecked = e.target.checked;
+        selectAllCheckboxes(name, isChecked);
+    });
+
+    $(document).on('change', checkboxSelector, checkSelectAllCheckboxState);
+}
+
+function selectAllCheckboxes(name, flag) {
+    $(".alpaca-control.checkbox[name="+name+"]").each(function () {
+        let checked_val = $(this).find('input[type=checkbox]').prop('checked');
+        if (flag !== checked_val) {
+            $(this).find('input[type=checkbox]').click();
+        }
+    });
+}
+
+$.alpaca.Fields.DurationWidget = $.alpaca.Fields.NumberField.extend({
+    getFieldType: function () {
+        return "duration-widget"; // Define the custom field type
+    },
+    setup: function () {
+        this.base();
+
+        this.startFieldName = this.options.startField;
+        this.endFieldName = this.options.endField;
+    },
+    calculateDuration: function (startDate, endDate) {
+        var self = this;
+        const parentField = self.getParent();
+        const startField = parentField.childrenByPropertyId[self.startFieldName];
+        const $datepicker = startField.control;
+        const getDateFormat = ($datepicker) => {
+            const datepickerFormat = $datepicker.datepicker('option', 'dateFormat');
+            return convertDatepickerToMomentFormat(datepickerFormat);
+        };
+
+        let dateFormat = self.dateFormat || getDateFormat($datepicker);
+
+        if (startDate) {
+            try {
+                const start = moment(startDate, dateFormat);
+                const end = endDate ? moment(endDate, dateFormat) : moment();
+
+                if (!start.isValid() || !end.isValid()) {
+                    console.error("Invalid dates provided.");
+                }
+
+                const duration = Math.max(0, end.diff(start, 'days')); // Difference in days
+
+                self.setValue(duration)
+                self.control.trigger("duration:updated", duration)
+
+            } catch (error) {
+                console.error('Error calculating duration:', error);
+                self.setValue(0)
+                self.control.trigger("duration:updated", 0)
+
+            }
+        } else {
+            self.setValue(0)
+        }
+    }
+});
+
+// Register the custom field class
+Alpaca.registerFieldClass("duration-widget", $.alpaca.Fields.DurationWidget);
+
+
+$.alpaca.Fields.TotalDurationWidget = $.alpaca.Fields.NumberField.extend({
+    getFieldType: function () {
+        return "total-duration-widget";
+    },
+    setup: function () {
+        this.base();
+
+        this.dataCollectionField = this.options.dataCollectionField;
+        this.dataField = this.options.dataField;
+    },
+    attachListenersToCollectionRows: function (CollectionField) {
+        const self = this;
+
+        CollectionField.getValue().forEach(function (item, index) {
+            const rowField = CollectionField.children[index];
+            if (rowField) {
+                const durationField = rowField.childrenByPropertyId[self.dataField];
+                if (durationField) {
+                    durationField.control.off("duration:updated").on("duration:updated", function () {
+                        self.calculateTotal();
+                    });
+                    durationField.control.off("change.totalDuration").on("change.totalDuration", function () {
+                        self.calculateTotal();
+                    });
+                }
+            }
+        });
+    },
+    calculateTotal: function () {
+        const self = this;
+        const targetField = this.getParent().childrenByPropertyId[self.dataCollectionField];
+        let total = 0;
+
+        if (targetField) {
+            targetField.getValue().forEach(function (item, index) {
+                const value = item.duration || 0;
+                total += value;
+            });
+        }
+        this.setValue(total);
+    }
+});
+
+Alpaca.registerFieldClass("total-duration-widget", $.alpaca.Fields.TotalDurationWidget);
+        $t x ˇˇ     20241209150345-8lt 	EX;G   https://ats.talentadore.com/static/alpaca_custom.js?v=4.6.0hm26-2964e10      â  var $main_layout_attributes = $("#main_layout_attributes");
+
+function getFormConfigFromDOM($dom) {
+    if ($.trim($dom.text()) != "") {
+        return $.parseJSON($dom.text());
+    }
+}
+
+function getFormConfigFromAPI(url, data, callback) {
+    $.ajax({
+        type: 'POST',
+        dataType: 'json',
+        data: data,
+        url: url
+    }).done(function (data) {
+        callback(data)
+    });
+}
+
+function alpacaForm() {
+    this.init = function ($formDiv, $render) {
+        this.$form = $formDiv;
+        this.$formJson = this.$form ? this.$form.find('.form_json') : null;
+        this.$renderDiv = $render ? $render : this.$form;
+        this.itis = [];
+        this.textEditors = [];
+    }
+
+    this.setLanguage = function (lang) {
+        this.language = lang
+    }
+
+    this.setValidator = function (formConf, i18n) {
+        Object.keys(formConf["schema"]["properties"]).forEach(function (key) {
+            var pattern = formConf["schema"]["properties"][key]["pattern"];
+            if (pattern) {
+                formConf["schema"]["properties"][key]["pattern"] = new RegExp(pattern);
+            }
+            var validation = formConf["options"]["fields"][key]["validator"],
+                validationFunction, failed_message;
+            switch (validation) {
+                case "finnish_id_validator":
+                    validationFunction = finnishIdValidation;
+                    failed_message = i18n_terms("invalid_social_id", i18n);
+                    break;
+                case "swedish_id_validator":
+                    validationFunction = null;  // Checksum to be implemented
+                    failed_message = i18n_terms("invalid_social_id", i18n);
+                    break;
+                case "iban_validator":
+                    validationFunction = IBANValidation;
+                    failed_message = i18n_terms("invalid_iban", i18n);
+            }
+            if (validationFunction) {
+                formConf["options"]["fields"][key]["validator"] = function (callback) {
+                    callback(validationFunction(this.getValue(), failed_message, formConf["schema"]["properties"][key]))
+                }
+            }
+        });
+        return formConf
+    }
+
+    this.defaultPostRender = function (control, updateFormJsonCb) {
+        var $form = this.$form ? this.$form : control.domEl.closest('form'),
+            $formJson = this.$formJson ? this.$formJson : $form.find('.form_json'),
+            language = this.language,
+            itis = this.itis,
+            textEditors = this.textEditors;
+        moveElements();
+        initSelect2InAlpaca(control, language);
+        initSpectrumInAlpaca(control);
+        $(".date_widget_class input").prop('readonly', true);
+
+        $(".alpaca-control.checkbox").each(function () {
+            $(this).find('input').attr('name', $(this).attr('name'));
+            $(this).find('input').attr('value', $(this).find('input').attr('data-checkbox-value'));
+        });
+
+        $('.alpaca-field-checkbox div:empty').remove();
+        initAlpacaTogglers();
+
+        $("#disclaimer").html("");
+        initSubmitButtonValidation(control);
+        $form.find('.checkbox_widget_class.alpaca-required').each(function (i, container) {
+            var $label = $(container).find('label');
+
+            if (!$label.find('.alpaca-required-indicator').length) {
+                $label.append('<span class="alpaca-icon-required glyphicon glyphicon-star alpaca-required-indicator"></span>');
+            }
+        });
+
+        function validateControl() {
+            if (this.field.hasClass('alpaca-invalid')) {
+                this.refreshValidationState();
+            }
+        }
+
+        function updateFormJson(e) {
+            if (!e) {
+                return;
+            }
+            if ($formJson.length) {
+                if (e.type === 'submit') {
+                    itis.forEach(function (iti) {
+                        $(iti.a).val(iti.getNumber());
+                    });
+                }
+                var value = control.getValue();
+                textEditors.forEach(function (editor) {
+                    value[editor.name] = CKEDITOR.instances[editor.id].getData();
+                });
+                $formJson.val(JSON.stringify(value));
+
+                if (e !== "init" && typeof updateFormJsonCb === 'function') {
+                    updateFormJsonCb();
+                }
+            }
+        }
+
+        function moveElements() {
+            var $applicantImage = $('#applicant-image'),
+                $videoQuestions = $('#video-questions'),
+                schemaProperties = control.schema.properties,
+                hasProfileImage = _.has(schemaProperties, 'applicant_image') || _.has(schemaProperties, 'talent_image');
+
+            // Applicant image
+            if (hasProfileImage && $applicantImage.length) {
+                var $wrapElements = $form.find('.alpaca-container-item[data-alpaca-container-item-name="first_name"],\
+                                                .alpaca-container-item[data-alpaca-container-item-name="last_name"],\
+                                                .alpaca-container-item[data-alpaca-container-item-name="email"],\
+                                                .alpaca-container-item[data-alpaca-container-item-name="telephone"]');
+
+                $wrapElements.wrapAll('<div class="alpaca-container-item"><div class="row"><div class="col-xs-12 col-sm-7" id="basic-information-col"></div></div></div>');
+
+                var $applicantImageTarget = $form.find('#basic-information-col');
+                $applicantImage.insertBefore($applicantImageTarget).show();
+            }
+
+            // Video questions
+            if ($videoQuestions.length) {
+                var $videoQuestionsTarget = $form.find('.alpaca-container-item[data-alpaca-container-item-name="applicant_attachment3"]');
+
+                if (!$videoQuestionsTarget.length) {
+                    $videoQuestionsTarget = $form.find('.alpaca-container-item').last();
+                }
+
+                $videoQuestions.insertAfter($videoQuestionsTarget).show();
+            }
+
+            $form.find('.alpaca-container-item').each(function () {
+                var $item = $(this),
+                    $itemCol = $item.find('.col-sm-9'),
+                    $itemLabel = $item.find('label.control-label');
+
+                if (!$itemLabel.length) {
+                    $itemCol.addClass('col-sm-offset-3');
+                }
+            });
+        }
+        control.on('change', updateFormJson);
+        $form.on('submit', updateFormJson);
+        updateFormJson('init');
+
+        $form.find("input[type='file']").on('change', function () {
+            var val = $(this).val(),
+                child = control.childrenById[$(this).attr("id")];
+
+            if (child) {
+                child.setValue(val);
+            }
+        })
+
+        control.children.forEach(function (child) {
+            // if Select all option in checkbox list
+            if (child.options.select_all) {
+                const { select_all_label } = child.options;
+                child.field.find('.checkbox').wrapAll('<div class="checkboxes-inline"></div');
+                $(`.alpaca-container-item[data-alpaca-container-item-name="${child.name}"] .alpaca-control-label`).after(`
+                    <div class="alpaca-control checkbox checkbox-select-all" name="select_all_fields_to_share">
+                        <label>
+                            <input type="checkbox" data-checkbox-index="100" id="${child.name}_select_all" data-checkbox-value="select_all" class="" name="fields_to_share" value="select_all">
+                            ${select_all_label}
+                        </label>
+                    </div>
+                    <hr class="spacing-vertical-s">
+                `);
+                addListenerOnSelectAllCheckboxChanged($("#"+child.name+"_select_all"), child.name);
+            }
+            if (child.options.type == "ckeditor") {
+                if (CKEDITOR.instances[child.id]) {
+                    CKEDITOR.instances[child.id].destroy()
+                }
+                replaceWithCKEditor(child.id);
+                textEditors.push(child);
+            }
+            if (child.type === 'phone' && control.view.type !== 'display') {
+                var options = {
+                    utilsScript: 'https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.12/js/utils.min.js',
+                    autoPlaceholder: 'aggressive',
+                    initialCountry: 'fi',
+                    preferredCountries: ['fi'],
+                    customContainer: 'responsive-block'
+                };
+                var iti = window.intlTelInput(child.control[0], _.merge(options, child.options.international_phone_options));
+                itis.push(iti);
+            }
+            checkMaxItem(child);
+            initDurationWidget(child);
+            initTotalDurationWidget(child);
+            control.on("ready", initSelect2InAlpaca);
+            child.on("keyup", _.debounce(validateControl, 300, {'maxWait': 1000}));
+            child.on("add", function (c) {
+                initSelect2InAlpaca(c, language);
+                initDurationWidget(c);
+                initTotalDurationWidget(c);
+                checkMaxItem(child);
+
+                c.children.forEach((cField) => {
+                    initDurationWidget(cField);
+                    initTotalDurationWidget(cField);
+                });
+            });
+            child.on("remove", function () {
+                checkMaxItem(child)
+            });
+            if (child.field.hasClass("date_widget_class")) {
+                var dt = child.data;
+                if (dt) {
+                    var localized = localizedDate(dt);
+                    if (localized !== "Invalid date") {
+                        child.control.text(localized);
+                    }
+                }
+            }
+            if (child.type === 'geocoord') {
+                onGoogleMapsReady(function() {
+                    geoLocationWidgetListener(child);
+                });
+            }
+            if (child.children) {
+                child.children.forEach(function (nested) {
+                    initSelect2InAlpaca(nested, language);
+                    initDurationWidget(nested);
+                    initTotalDurationWidget(nested);
+                });
+            }
+            showDisclaimer(child, $form);
+        });
+
+        var attachmentOverlaysCount = $('.attachment-overlay').length;
+        if (attachmentOverlaysCount > 1) {
+            $('.attachment-overlay').each(function (i, overlay) {
+                var $overlay = $(overlay);
+                var prevButton = '<a class="spacing-horizontal overlay-navigation-link" data-navigation_direction="-1">\
+                                <span class="icon-svg-arrow-narrow-left"></span>\
+                                Previous\
+                            </a>';
+                var nextButton = '<a class="spacing-horizontal overlay-navigation-link" data-navigation_direction="1">\
+                                Next\
+                                <span class="icon-svg-arrow-narrow-right"></span>\
+                            </a>';
+
+                $overlay.attr('data-overlay_index', i);
+
+                if (i === 0) {
+                    $overlay.find('.overlay-navigation').html(nextButton);
+                } else if (i + 1 === attachmentOverlaysCount) {
+                    $overlay.find('.overlay-navigation').html(prevButton);
+                } else {
+                    $overlay.find('.overlay-navigation').html(prevButton + nextButton);
+                }
+            });
+        }
+    }
+
+    this.postRender = function () {
+        var self = this;
+        return function (control) {
+            self.defaultPostRender(control);
+        }
+    }
+
+    this.render = function () {
+        this.$renderDiv.alpaca('destroy');
+        if (this.formConf) {
+            this.formConf["postRender"] = this.postRender();
+            if (this.$renderDiv.closest('.alpaca-template-cv').length) {
+                const formData = this.formConf.data;
+                let alpacaHtml = '';
+
+                function getEmploymentSectionHtml({ heading, headingInfo, data, startDateKey, endDateKey, titleHtml, subtitleHtml, descriptionHtml, hideDuration }) {
+                    return `
+                        <div class="alpaca-template-cv-section">
+                            ${heading ? `
+                                <h4>
+                                    ${sanitizeTheHtml(heading)}
+                                </h4>
+                            ` : ''}
+                            ${data.map((d) => {
+                                const startDate = d[startDateKey] ? moment(d[startDateKey]) : '';
+                                const endDate = d[endDateKey] ? moment(d[endDateKey]) : moment();
+                                return `
+                                    <div class="employment-info-container">
+                                        <div class="col">
+                                            <div class="employment-years">
+                                                ${startDate ? `
+                                                    ${startDate.year()} - ${d[endDateKey] ? endDate.year() : global_i18n('present')}
+                                                ` : ''}
+                                            </div>
+                                            ${!hideDuration ?
+                                                `<div class="employment-duration">
+                                                    ${startDate ? `(${startDate.from(endDate, true)})` : ''}
+                                                </div>`
+                                            : ''}
+                                        </div>
+                                        <div class="col">
+                                            ${titleHtml ? `<div class="employment-title">${titleHtml(d)}</div>` : ''}
+                                            ${subtitleHtml ? `<div class="employment-subtitle">${subtitleHtml(d)}</div>` : ''}
+                                            ${descriptionHtml ? `<div class="employment-description">${descriptionHtml(d)}</div>` : ''}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+
+                for (const key in formData) {
+                    const data = formData[key];
+                    const props = this.formConf.schema.properties[key];
+
+                    if (key === 'summary') {
+                        alpacaHtml += `
+                            <div class="alpaca-template-cv-section">
+                                <p>${sanitizeTheHtml(data)}</p>
+                            </div>
+                        `;
+                    } else if (key === 'employments' || key === 'draft_employments') {
+                        let totalYears = 0;
+                        data.forEach((d) => {
+                            const startDate = d.dates_start ? moment(d.dates_start) : '';
+                            const endDate = d.dates_end ? moment(d.dates_end) : moment();
+                            totalYears += endDate.diff(startDate, 'years');
+                        });
+                        alpacaHtml += getEmploymentSectionHtml({
+                            heading: props.title,
+                            headingInfo: global_i18n('x_years').replace('{}', totalYears),
+                            data,
+                            startDateKey: 'dates_start',
+                            endDateKey: 'dates_end',
+                            titleHtml: (d) => sanitizeTheHtml(d.title),
+                            subtitleHtml: (d) => {
+                                return `
+                                    ${sanitizeTheHtml(d.company_name)}
+                                    ${d.location ? `(${sanitizeTheHtml(d.location)})` : ''}
+                                `;
+                            },
+                            descriptionHtml: (d) => sanitizeTheHtml(d.description),
+                        });
+                    } else if (key === 'education' || key === 'draft_education') {
+                        alpacaHtml += getEmploymentSectionHtml({
+                            heading: props.title,
+                            headingInfo: sanitizeTheHtml(data[0].degree_name),
+                            data,
+                            startDateKey: 'dates_start',
+                            endDateKey: 'dates_end',
+                            titleHtml: (d) => `${sanitizeTheHtml(d.degree_name)} ${sanitizeTheHtml(d.field_of_study)}`,
+                            subtitleHtml: (d) => {
+                                return `
+                                    ${sanitizeTheHtml(d.grade)}
+                                    ${d.school_name ? `(${sanitizeTheHtml(d.school_name)})` : ''}
+                                `;
+                            },
+                            hideDuration: true,
+                        });
+                    } else if (key === 'highlights') {
+                        alpacaHtml += `
+                            <div class="alpaca-template-cv-section">
+                                <h4>${sanitizeTheHtml(props.title)}</h4>
+                                <ul>
+                                    ${data.map((d) => `<li>${sanitizeTheHtml(d)}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    }
+                }
+                this.$renderDiv.html(`<div class="alpaca-template-cv-container">${alpacaHtml}</div>`);
+                return;
+            }
+            this.$renderDiv.alpaca(this.formConf);
+        }
+    }
+
+    this.updateJsonConfiguration = function (config) {
+        if (config) {
+            for (var key in config["schema"]["properties"]) {
+                if (key === "address" && Object.keys(config["schema"]["properties"]).includes("geocoord")) {
+                    config["options"]["fields"][key]["type"] = "geocoord";
+                }
+            }
+            this.formConf = this.setValidator(config, global_i18n_object)
+        }
+        this.render();
+    }
+    
+    this.reset = function () {
+        const form = $(this.$renderDiv).alpaca('get');
+        if (form) {
+            form.schema.data = {};
+            form.setValue({});
+            form.refresh();
+        }
+    };
+}
+
+function showDisclaimer(control) {
+    const options = control["options"] && control["options"]["smallprint"],
+        $disclaimer = $("#disclaimer");
+    if (options && $disclaimer) {
+        let current_html = $disclaimer.html();
+        current_html += "<p>" + options["description"] + "</p>";
+        $disclaimer.html(current_html);
+    }
+}
+
+function checkMaxItem(control) {
+    var $button = control.domEl.find(".alpaca-array-toolbar[data-alpaca-array-toolbar-field-id='" + control.id + "']")
+    if (control.children && control.schema.maxItems) {
+        $button.toggle(control.children.length < control.schema.maxItems)
+    }
+}
+
+$.alpaca.Fields.DateTimeWidget = $.alpaca.Fields.TextField.extend({
+    getFieldType: function () {
+        return "jquery-datetime-picker";
+    },
+    afterRenderControl: function (model, callback) {
+        var self = this;
+        callback();
+        if (!self.isDisplayOnly()) {
+            var datetimepickerOptions = {
+                dateFormat: "yy-mm-dd",
+                timeFormat: "HH:mm",
+                controlType: 'select',
+                oneLine: true
+            }
+            $(self.control).datetimepicker(_.merge(datetimepickerOptions, self.options.datetimepickerOptions));
+        }
+    }
+
+})
+Alpaca.registerFieldClass("jquery-datetime-picker", Alpaca.Fields.DateTimeWidget);
+
+
+$.alpaca.Fields.NPSWidget = $.alpaca.Fields.TextField.extend({
+        getFieldType: function () {
+            return "nps-score-widget";
+        },
+        afterRenderControl: function (model, callback) {
+            var self = this;
+            callback();
+            let container = self.field.find(".vote-container");
+            let voteNum = self.options["nps_range"] || 10;
+            for (var i = 0; i < voteNum + 1; i++) {
+                let voteBox = '<div class="vote-box ' + self.id + '-vote-box" data-index=' + i + '>' +
+                    '<span>' + i + '</span>' +
+                    '</div>';
+                container.append(voteBox);
+            }
+            $('.' + self.id + '-vote-box').on("click", function () {
+                let clicked = this.dataset.index;
+                $('.' + self.id + '-vote-box').each(function () {
+                    if (clicked != this.dataset.index) $(this).removeClass("active")
+                });
+                if ($(this).toggleClass("active").hasClass("active")) {
+                    self.control.val(this.dataset.index);
+                } else self.control.val(null);
+            });
+        }
+    }
+)
+Alpaca.registerFieldClass("nps-score-widget", Alpaca.Fields.NPSWidget);
+
+
+$.alpaca.Fields.GeoCoordField = $.alpaca.Fields.TextField;
+Alpaca.registerFieldClass("geocoord", Alpaca.Fields.GeoCoordField);
+
+
+$.alpaca.Fields.SelectWithDynamicEnums = $.alpaca.Fields.SelectField.extend({
+    getFieldType: function () {
+        return "select-with-dynamic-enums";
+    },
+    afterRenderControl: function (model, callback) {
+        var self = this;
+        callback();
+        if (self.data && self.data.length > 0 && self.isDisplayOnly()) {
+            var data = [];
+            self.data.forEach(function (item) {
+                data.push(item["value"])
+            });
+            $.get(self.options["select2Options"]["ajax"]["url"], {"values[]": data}, function (result) {
+                var result_labels = [];
+                if (result["results"]) {
+                    result["results"].forEach(function (item) {
+                        result_labels.push(item.text);
+                    });
+                }
+                self.control.text(result_labels.join(", "));
+            });
+
+        }
+        $(self.control).change(function (e) {
+            var val = $(self.control).val();
+            // set value silently
+            self.setValue(val, true);
+            self.refreshValidationState();
+            self.triggerWithPropagation("change");
+        });
+    }
+});
+Alpaca.registerFieldClass("select-with-dynamic-enums", Alpaca.Fields.SelectWithDynamicEnums);
+Alpaca.regexps.phone = /^\+[1-9]\d{3,14}$/; // RegEx Matching for E.164 https://www.twilio.com/docs/glossary/what-e164#regex-matching-for-e164
+
+function initSelect2InAlpaca(control, lang) {
+    function doInitSelect2() {
+        control.children.forEach(function (child, index) {
+            if ($(child.field[0]).hasClass("alpaca_select2_widget")) {
+                var $select = $(child.field[0]).find("select"),
+                    options = child.options && child.options.select2Options || {},
+                    data = [];
+                $select.select2(options);
+                child.data.forEach(function (item) {
+                    data.push(item["value"])
+                });
+                getLabelsForSelect2Values(options.ajax && options.ajax.url, data, $select)
+            }
+        })
+    }
+
+    if (control.children) {
+        var $i18nSelectJs = $('#select2-i18n-js');
+        if (lang && $i18nSelectJs.length) {
+            $.getScript($i18nSelectJs.data('src').replace('{}', lang), doInitSelect2)
+        } else {
+            doInitSelect2()
+        }
+    }
+}
+
+function initDurationWidget(self) {
+    if (self.getFieldType() !== "duration-widget") {
+        return;
+    }
+
+    const parentField = self.getParent();
+    const startField = parentField.childrenByPropertyId[self.startFieldName];
+    const dateFormatCStyle = startField.schema?.date_config?.format;
+    if (dateFormatCStyle) {
+        self.dateFormat = convertCStyleToMomentFormat(dateFormatCStyle);
+    }
+    const endField = parentField.childrenByPropertyId[self.endFieldName];
+
+    if (startField && endField) {
+        // Listen for changes on start_date and end_date
+        startField.control.on("change", function () {
+            self.calculateDuration(startField.getValue(), endField.getValue());
+        });
+
+        endField.control.on("change", function () {
+            self.calculateDuration(startField.getValue(), endField.getValue());
+        });
+    }
+}
+
+function initTotalDurationWidget(self) {
+    if (self.getFieldType() !== "total-duration-widget") {
+        return;
+    }
+    
+    const parentField = self.getParent();
+    const targetField = parentField.childrenByPropertyId[self.dataCollectionField];
+
+    if (targetField) {
+        targetField.on("add", function () {
+            self.attachListenersToCollectionRows(targetField);
+        });
+
+        targetField.on("remove", function () {
+            self.calculateTotal();
+        });
+
+        self.attachListenersToCollectionRows(targetField);
+    }
+}
+
+// GeoLocation Places
+function geoLocationWidgetListener(control) {
+    const options = control["options"]["geoOptions"],
+        id = control["id"];
+    const $lat = $("input[name=geocoord_latitude]") && $("input[name=geocoord_latitude]")[0],
+        $lon = $("input[name=geocoord_longitude]") && $("input[name=geocoord_longitude]")[0];
+    if (id == "address" && $lat) {
+        const address_input = $(control.field[0]).find("input");
+        addListenerForGeoLocation(address_input[0], options, function (place) {
+            $lat.value = place.geometry.location.lat();
+            $lon.value = place.geometry.location.lng();
+            var $hometown = $("input[name=hometown]") && $("input[name=hometown]")[0],
+                $postoffice = $("input[name=post_office]") && $("input[name=post_office]")[0],
+                $country = $("input[name=country]") && $("input[name=country]")[0];
+            if ($hometown) {
+                $hometown.value = place.locality;
+            }
+            if ($postoffice) {
+                $postoffice.value = place.postal_code;
+            }
+            if ($country) {
+                $country.value = getCountryISO3(place.country.toUpperCase());
+            }
+        });
+    }
+}
+
+function addListenerForGeoLocation(element, options, callback) {
+    const types = {
+        "all": [],
+        "address": ["address"],
+        "establishment": ["establishment"],
+        "geocode": ["geocode"]
+    };
+    const autocomplete = new google.maps.places.Autocomplete(element);
+    autocomplete.setTypes(types['all']);
+    autocomplete.setFields(["address_components", "geometry", "icon", "name"]);
+    if (options) {
+        autocomplete.setComponentRestrictions(options["restrictions"]);
+    }
+    autocomplete.addListener("place_changed", function () {
+        const place = autocomplete.getPlace();
+        if (!place.geometry) {
+            window.alert("No details available for input: '" + place.name + "'");
+            return;
+        }
+
+        let address = "";
+        if (place.address_components) {
+            const postal_code = place.address_components.find(function (item) {
+                return (item.types && item.types.indexOf('postal_code') !== -1)
+            });
+            const locality = place.address_components.find(function (item) {
+                return (item.types && item.types.indexOf('locality') !== -1)
+            });
+            const country = place.address_components.find(function (item) {
+                return (item.types && item.types.indexOf('country') !== -1)
+            });
+            if (postal_code || locality) {
+                place.postal_code = postal_code ? postal_code.short_name : "";
+                place.locality = locality ? locality.short_name : "";
+                place.country = country ? country.short_name : "";
+            }
+            address = [
+                (place.address_components[0] &&
+                    place.address_components[0].short_name) ||
+                "",
+                (place.address_components[1] &&
+                    place.address_components[1].short_name) ||
+                "",
+                (place.address_components[2] &&
+                    place.address_components[2].short_name) ||
+                "",
+            ].join(" ");
+        }
+
+        place.value = element.value;
+        place.address = address;
+        callback(place);
+    });
+}
+
+function initSpectrumInAlpaca(control) {
+    function hexIsLight(color) {
+        const hex = color.replace('#', '');
+        const cR = parseInt(hex.substring(0, 0 + 2), 16);
+        const cG = parseInt(hex.substring(2, 2 + 2), 16);
+        const cB = parseInt(hex.substring(4, 4 + 2), 16);
+        const brightness = ((cR * 299) + (cG * 587) + (cB * 114)) / 1000;
+        return brightness > 155;
+    }
+
+    function updateHexPreview($spPreviewInner, hexColor) {
+        $spPreviewInner.css('color', (hexIsLight(hexColor) ? 'inherit' : '#fff'));
+        $spPreviewInner.text(hexColor.toUpperCase());
+    }
+
+    const $container = control.domEl || control;
+    const isHtmlForm = !!$container.closest('form').length,
+        $form = isHtmlForm ? $container.closest('form') : $container.closest('.ta-form');
+    const $color = $form.find('input[type="color"]')
+
+    $.each($color, function (index, value) {
+        const $input = $(value)
+        const inputValue = $input.attr("name")
+        $('label[for="' + inputValue + '"]').attr('for', '');
+        $input.wrap('<div class="colorpicker-container"></div>').spectrum({
+            preferredFormat: "hex",
+            showInput: true,
+            showPalette: true,
+            palette: [["black"], ["white"], ["red"], ["rgb(0, 255, 0)"], ["rgb(0, 0, 255)"]],
+            showAlpha: true,
+            change: function (color) {
+                const hexColor = color.toHexString();
+                const $container = $input.closest('.colorpicker-container');
+                $input.val(hexColor);
+                updateHexPreview($container.find('.sp-preview-inner'), hexColor);
+            }
+        });
+        const $container = $input.closest('.colorpicker-container');
+        $container.find('.sp-preview').after(`
+            <div class="ta-sp-preview-label">${global_i18n('select_color', global_i18n_object)}</div>
+        `);
+        updateHexPreview($container.find('.sp-preview-inner'), $input.spectrum('get').toHexString());
+    })
+}
+
+function addListenerOnSelectAllCheckboxChanged(ele, name) {
+    const checkboxSelector = `input[type="checkbox"][name="${name}"]:not([value="select_all"])`;
+
+    function checkSelectAllCheckboxState() {
+        const checkboxesArray = [...document.querySelectorAll(checkboxSelector)];
+        const allChecked = checkboxesArray.every((checkbox) => checkbox.checked);
+        const someChecked = checkboxesArray.some((checkbox) => checkbox.checked);
+        ele.prop('checked', someChecked);
+        ele.prop('indeterminate', !allChecked && someChecked);
+    }
+
+    checkSelectAllCheckboxState();
+
+    ele.on('change', function(e) {
+        const isChecked = e.target.checked;
+        selectAllCheckboxes(name, isChecked);
+    });
+
+    $(document).on('change', checkboxSelector, checkSelectAllCheckboxState);
+}
+
+function selectAllCheckboxes(name, flag) {
+    $(".alpaca-control.checkbox[name="+name+"]").each(function () {
+        let checked_val = $(this).find('input[type=checkbox]').prop('checked');
+        if (flag !== checked_val) {
+            $(this).find('input[type=checkbox]').click();
+        }
+    });
+}
+
+$.alpaca.Fields.DurationWidget = $.alpaca.Fields.NumberField.extend({
+    getFieldType: function () {
+        return "duration-widget"; // Define the custom field type
+    },
+    setup: function () {
+        this.base();
+
+        this.startFieldName = this.options.startField;
+        this.endFieldName = this.options.endField;
+    },
+    calculateDuration: function (startDate, endDate) {
+        var self = this;
+        const parentField = self.getParent();
+        const startField = parentField.childrenByPropertyId[self.startFieldName];
+        const $datepicker = startField.control;
+        const getDateFormat = ($datepicker) => {
+            const datepickerFormat = $datepicker.datepicker('option', 'dateFormat');
+            return convertDatepickerToMomentFormat(datepickerFormat);
+        };
+
+        let dateFormat = self.dateFormat || getDateFormat($datepicker);
+
+        if (startDate) {
+            try {
+                const start = moment(startDate, dateFormat);
+                const end = endDate ? moment(endDate, dateFormat) : moment();
+
+                if (!start.isValid() || !end.isValid()) {
+                    console.error("Invalid dates provided.");
+                }
+
+                const duration = Math.max(0, end.diff(start, 'days')); // Difference in days
+
+                self.setValue(duration)
+                self.control.trigger("duration:updated", duration)
+
+            } catch (error) {
+                console.error('Error calculating duration:', error);
+                self.setValue(0)
+                self.control.trigger("duration:updated", 0)
+
+            }
+        } else {
+            self.setValue(0)
+        }
+    }
+});
+
+// Register the custom field class
+Alpaca.registerFieldClass("duration-widget", $.alpaca.Fields.DurationWidget);
+
+
+$.alpaca.Fields.TotalDurationWidget = $.alpaca.Fields.NumberField.extend({
+    getFieldType: function () {
+        return "total-duration-widget";
+    },
+    setup: function () {
+        this.base();
+
+        this.dataCollectionField = this.options.dataCollectionField;
+        this.dataField = this.options.dataField;
+    },
+    attachListenersToCollectionRows: function (CollectionField) {
+        const self = this;
+
+        CollectionField.getValue().forEach(function (item, index) {
+            const rowField = CollectionField.children[index];
+            if (rowField) {
+                const durationField = rowField.childrenByPropertyId[self.dataField];
+                if (durationField) {
+                    durationField.control.off("duration:updated").on("duration:updated", function () {
+                        self.calculateTotal();
+                    });
+                    durationField.control.off("change.totalDuration").on("change.totalDuration", function () {
+                        self.calculateTotal();
+                    });
+                }
+            }
+        });
+    },
+    calculateTotal: function () {
+        const self = this;
+        const targetField = this.getParent().childrenByPropertyId[self.dataCollectionField];
+        let total = 0;
+
+        if (targetField) {
+            targetField.getValue().forEach(function (item, index) {
+                const value = item.duration || 0;
+                total += value;
+            });
+        }
+        this.setValue(total);
+    }
+});
+
+Alpaca.registerFieldClass("total-duration-widget", $.alpaca.Fields.TotalDurationWidget);
+”ò¿Ÿ         ’⁄      $main_layout_attributes    ªæûÇ      #main_layout_attributes    ø√Æ(      getFormConfigFromDOM   ƒÑ—i      $dom   óñôb      trim   à3¿µ      text   Fbù6	      parseJSON      æõó      getFormConfigFromAPI   6ó(Å      data	   Ë€˘      callback
+   æd»ê      ajax   ﬂ:      POST   DoÄw      dataType   y˚ÔW
+      alpacaForm     íu`      init   ›Ω!A      $formDiv   ÿ◊0~      $render    l…≠      $form      ~:ˆ	      $formJson      ™—^•
+      .form_json     …õÿà
+      $renderDiv     Æ"      itis   <^:;      textEditors    £nÿ      setLanguage    +~,      lang   Õö/      setValidator   ®;b¢      formConf   ÿp¸      i18n   x3∏—      schema     ø€
+      properties     B¸ø;      key    z–w
+      validation       :yã      options!    Ú•Ïﬁ	      validator"      røÖ      validationFunction#     Åº°      failed_message$     *÷—      finnish_id_validator%   ƒ˚>ñ      finnishIdValidation&    Yè∑^
+      i18n_terms'     ¶5 R      invalid_social_id(      oπA      swedish_id_validator)   NÙ y      iban_validator*     ¸6ˆ”      IBANValidation+     om      invalid_iban,   ∆⁄¸      getValue-   ¶Ï‰«      defaultPostRender.      ‘Ω      control/    µõh      updateFormJsonCb0   ﬂÖ÷      domEl1      /ﬂ‰ï      closest2    *g“€      form3   Å„Ã      moveElements4   π>˛º      initSelect2InAlpaca5    ô^ß      initSpectrumInAlpaca6   &Õ^¡      .date_widget_class input7   “P…ù      prop8   ∆
+      readonly9   1Ω/`      .alpaca-control.checkbox:   A¢Ωê      attr;   N{ò      data-checkbox-value<    3Ë8       .alpaca-field-checkbox div:empty=   *N∑∆      remove>     èeÖŸ      initAlpacaTogglers?     H“¶g      #disclaimer@    ‘„X      htmlA   ⁄ÓÁz      initSubmitButtonValidationB     8§›[&      .checkbox_widget_class.alpaca-requiredC     -‚
+Ë	      containerD      úÎÆV      $labelE     ¿ ûì      .alpaca-required-indicatorF     ‹B-      appendG     ñã“«]      <span class="alpaca-icon-required glyphicon glyphicon-star alpaca-required-indicator"></span>H      bº@      validateControlI    †“ñ!      fieldJ      7ÑÉz      hasClassK   {‰,-      alpaca-invalidL     Bg—∏      refreshValidationStateM     [É(      updateFormJsonN     dÙ∂      submitO     ‘‡c       itiP    &⁄õ      valQ    vËË	      getNumberR      2»|»      editorS     ë(e      CKEDITORT   El\‰	      instancesU      “œü      getDataV    nßÎ	      stringifyW      g9ù'      $applicantImageX    oøÌw      #applicant-imageY   ”†Ì      $videoQuestionsZ    é4`n      #video-questions[   öîÎ      schemaProperties\   )	+S      hasProfileImage]    xÓ€Â      applicant_image^    zﬂå*      talent_image_   }M¡      $wrapElements`      óxnú     .alpaca-container-item[data-alpaca-container-item-name="first_name"],                                                .alpaca-container-item[data-alpaca-container-item-name="last_name"],                                                .alpaca-container-item[data-alpaca-container-item-name="email"],                                                .alpaca-container-item[data-alpaca-container-item-name="telephone"]a   o§à€      wrapAllb    Ô·© Å      <div class="alpaca-container-item"><div class="row"><div class="col-xs-12 col-sm-7" id="basic-information-col"></div></div></div>c      5Äõ∫      $applicantImageTargetd      ùÕ;6      #basic-information-cole     ÂL…2      insertBeforef   HáíK      showg   íΩOo      $videoQuestionsTargeth      Ÿ1˛O      .alpaca-container-item[data-alpaca-container-item-name="applicant_attachment3"]i    D˘ê      .alpaca-container-itemj     æ’      lastk   ää≥(      insertAfterl    ﬂ;Ë0      $itemm      ZP¥î      $itemColn   ΩÖc≠	      .col-sm-9o      øHyâ
+      $itemLabelp     dÚçN      label.control-labelq    Bå|      addClassr   »      col-sm-offset-3s    Á˛¡      changet     —Wπ©      input[type='file']u     Qj^      childv      KÔS£      childrenByIdw   ≠«uô      setValuex   
+}N      childreny   ﬁthÕ
+      select_allz     Õ∂˘      select_all_label{   ]òú…	      .checkbox|      cû∑ $      <div class="checkboxes-inline"></div}   √mÚ8      .alpaca-container-item[data-alpaca-container-item-name="~   P‹∏      "] .alpaca-control-label   ç≥T      afterÄ      ˘,ôJ‚      
+                    <div class="alpaca-control checkbox checkbox-select-all" name="select_all_fields_to_share">
+                        <label>
+                            <input type="checkbox" data-checkbox-index="100" id="Å     Ãÿ≥3~      _select_all" data-checkbox-value="select_all" class="" name="fields_to_share" value="select_all">
+                            Ç     à‰5√Å      
+                        </label>
+                    </div>
+                    <hr class="spacing-vertical-s">
+                É      ,Î˝B%      addListenerOnSelectAllCheckboxChangedÑ      kÁŸº      _select_allÖ    >	]f      ckeditorÜ   ŒÛ˝      destroyá    .…Ã      replaceWithCKEditorà    Ñu2      pushâ   ‰DƒÛ      phoneä      4’h      viewã   e}ü      displayå    ß)ªT      utilsScriptç    (b ˚M      https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.12/js/utils.min.jsé      ∫~õ      autoPlaceholderè    ÒmC
+      aggressiveê     U‡_      initialCountryë     .If      preferredCountriesí     ü      customContainerì    å1}Ÿ      responsive-blockî   ¯2áâ      windowï     Àº:∞      intlTelInputñ   ¬”Ûq      mergeó      Ú™d0      international_phone_optionsò    d¶_≤      checkMaxItemô   lˇbñ      initDurationWidgetö     ÎÖâi      initTotalDurationWidgetõ    ¢Ñ
+      readyú      KH`      keyupù      äCÃq      debounceû   ª¬ˇA      maxWaitü    Å%fì      cField†     Ì44      date_widget_class°      CΩ∑Ñ	      localized¢      üu.V      localizedDate£      õ≤áa      Invalid date§   f5ß      geocoord•   †z—Õ      onGoogleMapsReady¶      ≤)âe      geoLocationWidgetListenerß      “UËR      nested®     â«ˇ»      showDisclaimer©     ¬ìÿ      attachmentOverlaysCount™    ‡Æ‡      .attachment-overlay´    ØLËÚ      overlay¨    J‘î]      $overlay≠   ˛‘oΩ
+      prevButtonÆ     Tnó»Ì      <a class="spacing-horizontal overlay-navigation-link" data-navigation_direction="-1">                                <span class="icon-svg-arrow-narrow-left"></span>                                Previous                            </a>Ø      “kH
+      nextButton∞     √Ip°È      <a class="spacing-horizontal overlay-navigation-link" data-navigation_direction="1">                                Next                                <span class="icon-svg-arrow-narrow-right"></span>                            </a>±      æ‹ü      data-overlay_index≤     )M<a      .overlay-navigation≥    ƒˆ=÷
+      postRender¥     ¡§\l      selfµ   ‘ÍÕ˜      render∂     
+xäg      alpaca∑     °º3      .alpaca-template-cv∏    Ê¥Ò      formDataπ   Nt,
+      alpacaHtml∫     7ƒö      getEmploymentSectionHtmlª   c˝)/      headingº    ~Ôœ      headingInfoΩ    -®‘      startDateKeyæ   ‹ÕIa
+      endDateKeyø     ∂ûâj	      titleHtml¿      ∆pª(      subtitleHtml¡   
+ÈÜ      descriptionHtml¬    ¢ÒÁ      hideDuration√   •æö·^      
+                        <div class="alpaca-template-cv-section">
+                            ƒ     >VÀVJ      
+                                <h4>
+                                    ≈     øˆ      sanitizeTheHtml∆    nëÉC      
+                                </h4>
+                            «    –ƒÀÄ      
+                            »      9Ã      map…    Z]_ê	      startDate       lq˜;      momentÀ     7∞„      endDateÃ    ∂™∂     
+                                    <div class="employment-info-container">
+                                        <div class="col">
+                                            <div class="employment-years">
+                                                Õ     ¢ñ›5      
+                                                    Œ      èë¯)       - œ    ﬁÁ˛J      global_i18n–    $¡!3      present—    ;OÕ 1      
+                                                “      ûDû`      
+                                            </div>
+                                            ”   oZ¡,V      <div class="employment-duration">
+                                                    ‘     4l“7      
+                                                </div>’    w.ËTñ      
+                                        </div>
+                                        <div class="col">
+                                            ÷     ˘&ºq      <div class="employment-title">◊     ©è^      </div>ÿ     ·óŒÓ-      
+                                            Ÿ      ˜ÿv!      <div class="employment-subtitle">⁄      swD$      <div class="employment-description">€   ±Ñ·z{      
+                                        </div>
+                                    </div>
+                                ‹    x=q±4      
+                        </div>
+                    ›    ¶      propsﬁ      <√¶ä      summaryﬂ    ê$Òi      
+                            <div class="alpaca-template-cv-section">
+                                <p>‡      L¸õ£@      </p>
+                            </div>
+                        ·   <⁄I      employments‚    xI      draft_employments„      [[®à
+      totalYears‰     û‹l3      dates_startÂ    Õ ∏2	      dates_endÊ      8§Bë      diffÁ   “E      titleË      #ñI      x_yearsÈ    ıeıb      {}Í     à?-.%      
+                                    Î      åî      company_nameÏ   0+QA      locationÌ   √Ñ‘C!      
+                                Ó      Ñàö      descriptionÔ    )q˙-	      education      
+Ø	»      draft_educationÒ    ˙Bü      degree_nameÚ    Yzt2      field_of_studyÛ     	!¬ˆ      gradeÙ      ±y      school_nameı    Ì"ó‰
+      highlightsˆ     ÁÁccj      
+                            <div class="alpaca-template-cv-section">
+                                <h4>˜     AaÀ$O      </h4>
+                                <ul>
+                                    ¯    "'      <li>˘   ˜Ó’∂      </li>˙      ±±|b      
+                                </ul>
+                            </div>
+                        ˚     ˚ÛSÕ*      <div class="alpaca-template-cv-container">¸     ú^˜Ü      updateJsonConfiguration˝    ~û4      config˛     ¿sEû      addressˇ    1$â      global_i18n_object     ÛWÄπ      reset     ﬁÀ†»      refresh   ú0Ú⁄
+      smallprint    Úl»È      $disclaimer   ÚÎç      current_html  ·àí∆      <p>   ˇ!      </p>  MRQ¿      $button   e≈5¬:      .alpaca-array-toolbar[data-alpaca-array-toolbar-field-id='	    NT€h      ']
+    K\‘      maxItems  Ogµ      toggle    ¢“«É      Fields    …      DateTimeWidget    ∏‚Q˙	      TextField     ªl‡Ù      extend    ÷ﬂ¶ï      getFieldType  ï2¨≥      jquery-datetime-picker    (ˇb      afterRenderControl    9z‹      model     'Ä¥¡      isDisplayOnly     !èÅ      datetimepickerOptions     D~1ü
+      dateFormat    ®;K‰      yy-mm-dd  ñ¨
+      timeFormat    ugw      HH:mm     Vgò$      controlType   1<Î      select    ·¡ƒE      oneLine   £@©€      datetimepicker    ¯°v      Alpaca    6Añ∆      registerFieldClass     7±n/	      NPSWidget!     ≤ç´      nps-score-widget"  Ù>®…      .vote-container#   çÄ∏5      voteNum$   Â•Œu	      nps_range%     æÆõ      voteBox&   Ù+∏t      <div class="vote-box '     N2£Æ      -vote-box" data-index=*    z— Õ	      -vote-box+     ü™‚X      click,     h|È¢      clicked-   ^]ò      dataset.   ˆ+      removeClass/   å®Px      active0    ì˛(I      toggleClass1   Èê´b      GeoCoordField2     ô;      SelectWithDynamicEnums3    y6á      SelectField4   óŒ›      select-with-dynamic-enums5     ˝ÑÃ∫      item6  NöŒî      select2Options7     ‚X      values[]8  ‡∞àR      result_labels9     ˆ^v      , :    yP3      triggerWithPropagation;    Mpu*      regexps<   :YŸí      ^\+[1-9]\d{3,14}$=     |>ÕÑ      doInitSelect2>     ëŸÃß      alpaca_select2_widget?     Ê+4      $select@   ◊˜.      select2A   ‘$(      getLabelsForSelect2ValuesB     b0õ˚      $i18nSelectJsC       Ï5      #select2-i18n-jsD  ˝∑ÈI	      getScriptE     ú∑»õ      srcF   Eê˛[      duration-widgetG   €9Ô      parentFieldH   ®7Ùi	      getParentI     3à'˛
+      startFieldJ    tÏº(      childrenByPropertyIdK  ‹éŒ√      startFieldNameL    n+øb      dateFormatCStyleM  =õpz      date_configN   /á      convertCStyleToMomentFormatO   Ô¸˝«      endFieldP  -.Ø      endFieldNameQ  l≈Y<      calculateDurationR     bÿ@      total-duration-widgetS     7Œ¢¥      targetFieldT   B˘Vf      dataCollectionFieldU   Ñﬁ¢      attachListenersToCollectionRowsV   *´î      calculateTotalW    °-hÁ
+      geoOptionsX    1ú÷      $latY  Äg°^      input[name=geocoord_latitude]Z     ¢\¥      $lon[  Ç]HØ      input[name=geocoord_longitude]\    Ã¶9[      address_input]     *8pã      addListenerForGeoLocation^     4ÙÜŸ      place_     TœXY      geometry`  ±NNΩ      lata   ﬁh`      lngb   ∞Ä¸q	      $hometownc     GÔ      input[name=hometown]d  ıPsg      $postofficee   Ä∆u`      input[name=post_office]f   …Bî      $countryg  }˜$      input[name=country]h   &ºS~      localityi  ˆE!      postal_codej   ŒØ	—      getCountryISO3k    ∏~Qf      countryl   ¨‚s◊      toUpperCasem   â;°      typesn     £’/Â      allo   Í$Nª      establishmentp     Œ˛ög      geocodeq   k˜–      autocompleter  ÷áGƒ      googles    ê-1c      mapst  ®%k™      placesu    ¡]ˇ5      Autocompletev  ÔS6      setTypesw  ∞ŸíÑ	      setFieldsx     ã˝`      address_componentsy    VXﬂJ      iconz  -…K      setComponentRestrictions{  .¢÷8      restrictions|  Ä(      addListener}   T%˚      place_changed~     £¬{,      getPlace  “Ô¢Z      alertÄ     ·C[!      No details available for input: 'Å     ⁄Eú¡      indexOfÇ   Î¥ëà
+      short_nameÉ    ı¯¢õ
+      hexIsLightÑ    Ï
+ó      colorÖ     µlW–      hexÜ   ﬂY„	      substringá     ï∆Æ€
+      brightnessà    Pb9      updateHexPreviewâ  mΩã"      $spPreviewInnerä   ˛Æ4x      hexColorã  >ü      csså   D!%,      inheritç   ÷»œ      #fffé  ÔiÖ
+      $containerè    ∂ítÃ
+      isHtmlFormê    -/N      .ta-formë  ,xØk      $colorí    ıÉì      input[type="color"]ì   x÷Ö      $inputî    +¶Ë•
+      inputValueï    ã√Œ      label[for="ñ   ı£Ø      "]ó    —Íc      wrapò  fÁÕF)      <div class="colorpicker-container"></div>ô     ¥—…”      spectrumö  .¨      preferredFormatõ   q	l?	      showInputú     ◊ Qù      showPaletteù   Ê^rU      paletteû   ≈P≠m      blackü     §Ω      white†     ‰◊Í      red°   KèÚÑ      rgb(0, 255, 0)¢    á†;Ä      rgb(0, 0, 255)£    π∑ÀÏ	      showAlpha§     rú∞a      toHexString•   Åàfæ      .colorpicker-container¶    ®ΩvÙ      .sp-preview-innerß     >ij—      .sp-preview®   O|:t.      
+            <div class="ta-sp-preview-label">©    î6/l      select_color™  
+⁄
+      </div>
+        ´   òJô      ele¨   ¢Ä      checkboxSelector≠  Èy◊      input[type="checkbox"][name="Æ     ØrP¢      "]:not([value="select_all"])Ø  %Í∆      checkSelectAllCheckboxState∞   –x 4      checkboxesArray±   ∏OÄ      document≤  #•ç      querySelectorAll≥  òá˛
+      allChecked¥    Ä˘c      everyµ     ÿy*      checkbox∂  »:0ó      checked∑   0NÊì      someChecked∏   $›gÿ      someπ  ÂÈüï      indeterminate∫     ÌÎùK	      isCheckedª     n˙9ü      selectAllCheckboxesº   Ä≠•ù      flagΩ  ¡¬-      .alpaca-control.checkbox[name=æ    KÑen      checked_valø   ãµ·      input[type=checkbox]¿  ){v«      DurationWidget¡    Üoï      NumberField¬   8¬W¨      setup√     <7B      baseƒ  æ5ˆà      $datepicker≈   c√n◊      getDateFormat∆     ∞MÎ       datepickerFormat«  Jñ˛L
+      datepicker»    ⁄|`õ      option…    ¢pv      convertDatepickerToMomentFormat    ßﬂ£¡      isValidÀ   ˛Q1      consoleÃ   ˛tuW      errorÕ     ˚ƒ80      Invalid dates provided.Œ   ¿
+7      durationœ  Kk.      max–   ˘!p¬      trigger—   8Á      duration:updated“   Ÿ2      Error calculating duration:”   ?`Rø      TotalDurationWidget‘   Y∫õÀ	      dataField’     ∫uk      CollectionField÷   Î˚2D      rowField◊  …S«Q      durationFieldÿ     ˙¯Öﬂ      offŸ   µ^ò       change.totalDuration⁄  T˝ªW      total€     ƒû>S      ><span>‹   ®ƒl      </span></div>›     9`†˚      getFormConfigFromAPI/<ﬁ    ›|ÖZ      alpacaForm/this.initﬂ  ∆ÛV+      alpacaForm/this.setLanguage‡   |·?      alpacaForm/this.setValidator·  íè#≠      alpacaForm/this.setValidator/<‚    Œ ¶]E      alpacaForm/this.setValidator/</formConf.options.fields[key].validator„     ã‡!      alpacaForm/this.defaultPostRender‰     •◊«”#      alpacaForm/this.defaultPostRender/<Á   s]32      alpacaForm/this.defaultPostRender/updateFormJson/<È    .÷“z0      alpacaForm/this.defaultPostRender/moveElements/<Í  Â∑∂%      alpacaForm/this.defaultPostRender/</<Î     <≤®)'      alpacaForm/this.defaultPostRender/</</<Ï   Ùøô÷      alpacaForm/this.postRenderÌ    Âªﬂ      alpacaForm/this.postRender/<Ó  dy6à      alpacaForm/this.render    |”ÿ1      alpacaForm/this.render/getEmploymentSectionHtml/<Ò     ”ùùì      alpacaForm/this.render/<ı  1◊òÖ"      alpacaForm/this.render/alpacaHtml<ˆ    ˙`'      alpacaForm/this.updateJsonConfiguration˜   L{x?      alpacaForm/this.reset¯     òÑ®©      afterRenderControl/<˘  7|Û+      afterRenderControl/</<˚    r¶}#      initSelect2InAlpaca/doInitSelect2/<¸   ∫X¯%      initSelect2InAlpaca/doInitSelect2/</<˝     d¸›      initDurationWidget/<˛  ã∏"      initTotalDurationWidget/<ˇ     –RVª      geoLocationWidgetListener/<    ƒ·\       addListenerForGeoLocation/<   5‹’è(      addListenerForGeoLocation/</postal_code<  Êí‹%      addListenerForGeoLocation/</locality<     ˚9j|$      addListenerForGeoLocation/</country<  Óag`      initSpectrumInAlpaca/<	    ÛãóM      addListenerOnSelectAllCheckboxChanged/checkSelectAllCheckboxState/allChecked<
+     ˛[jN      addListenerOnSelectAllCheckboxChanged/checkSelectAllCheckboxState/someChecked<    ó¿C'      addListenerOnSelectAllCheckboxChanged/<   Üî]ï      selectAllCheckboxes/<     ﬂÅí»!      attachListenersToCollectionRows/<     éô~’#      attachListenersToCollectionRows/</<   …´é_      calculateTotal/<     `     Ö   `             Ô%,â                                                                                                                                                                        	                
+      
+                 
+                                                  
+                                  
+                 
+                 
+                 
+                                                                                                                     
+                                                                                                                     !                                 #                $               %                  &                 %           !      %           "      %           #      $           $      $           %      $           &                 '                 (      /                            )      1                 2                            *                 7      5           8      6          9      7           :                 ;      9                :           <      :           =                 >      =                >           ?      >           @                  A      A                B                C           B                 C      E                F           D      G                 H                I           E      I           F      I           G                 H      M                 N           I      O                 N           J      N           K      R                S           L      T                            M      V               W           N      X                 Y           O      Y           P      W           Q      \                            R      ^           S      _                            +                  ,                  -                 .      d                e                e           /      g               h           0                  1                 2      k           3      k          4      m           5      k           6                  T                  U                  V      r                s           W      t                 s                s                            X                  Y                 Z      z               {           [      |                 }                ~           \      ~           ]                  ^      Å               Ç           _      É                 ≥Oåc              ê  ê  ê®  êò  ê4  êô  êö  ê¶  ê] ê5  êÉ  êª ê                            <    	  P                             Ü                   Ü                 Ü                  P  P              P®    "  P#  P            	  Ü               .  P/  P  P  P< `  P  PH  PM  3  ©  PÜ                 Ü                e  B `             O               R                W  Y  [  \  _  c  g                l  m  o  Ü                 Ü               i  C  D                P  u  Ü               u  P   O  ] °            z               c               ü                                               ß              i  ´  ¨  ≠  Ø                ¥  PÜ                .                Ü   ∫           π  ∫  ∏  
+           
+     ª  º    Ω  Pæ  Pø  P¿  P¡  P¬  P             d            …  À                          ›           „  P             d            …  À               d               d               d               d               d               d              ˝    Ü                 Ü             2               .                                      .               .  P  = B                             u  ˛   ?      P             5              ¥  P          G I PL O P                                             ¥  P          G S P                                             .               ç X PZ P          \             ^ b d f              à  `   	  P          m q P                         ˛  ^           i h k              5              5              5              .  É Pà P          é è   ë              Ñ           Ö 5 * % á              â ä              ˛   B            ì Pî é              Ñ           ä é             ´ Pr `Ø           ¨ P                          ∞ ≥ ∑              µ              µ              e            ∫              r  º P              Ü            æ                              	  ¥   Ü                                	  ¥  Pi  Ü            C  #          %               Ü            , P              Ü                                	  ¥  P  PÜ                5              œ  8 P             5             e  P                                Ü               …  À  ¥  Ü             G I ƒ ≈              ƒ           ∆    
+       Û  è   Œ          Ã                               Ü               ’ PÜ             ¥  P             5 ˛             ÷           ◊                                               Ü            ⁄ P¥  S              5 ˛             B  Ø¬0∞<     IÙ$KEÆ˙ö         "      <           å  é  ê  ë  í          û     (     ª  º    Ω  æ  ø  ¿  ¡     (      ª  º    Ω  æ  ø  ¿  ¬                                n ˛  o p          ö õ ú ù £ s     
+                    
+           
+             7          ¬ Q        ¬ U V á&’™ç!´!`   ‹  ‡Ï”‹  Ÿ                y        ⁄   ∑   ª       s     ﬂª   J   J   ª   J   J   J   ·J   ‰9   m   <   m   <   s L   ﬂª   ·J   ‰   ª   J   J   w ﬂª   J   J   ª   J   J   J   ·J   ‰9   m   <   m    <   s L!   ﬂª   ·J   ‰"   ª   J   J!   w ﬂª   J   J   ª   J   J   J   L#   ﬂª   ·J   ‰$   ª   J   J#   w ﬂª   J   J   ª   J   J   J%   ·J   ‰9&   m'   <   m(   <   s L)   ﬂª   ·J   ‰*   ª   J   J)   w ﬂª   J+   l,   L-   ﬂª   J   J   ª   J   J   J.   ·J   ‰9/   m0   <   m1   <2   m3   <4   s L5   ﬂª   ·J   ‰6   ª   J   J   J5   w ﬂª   J   J   ª   J   J   J.   ·J   ‰97   m8   <   m9   <2   m:   <;   m<   <=   s L>   ﬂª   ·J   ‰?   ª   J   J   J>   w ﬂ•
+`P9Ä ∞`™ B% JÄ ∞<P9Ä √`ë 4ˇˇˇ”P`™ =%	 	JÄ ∆7P9Ä ·`ë .ˇˇˇŸP`©`ë &ˇˇˇ·P`™ L% JÄ ËFP9Ä `ë 7ˇˇˇ–P`ï0Ä `™ D% JÄ ˙JÄ >P9Ä !`ë -î ˇˇˇ⁄P`™ I% JÄ .JÄ @JÄ $CP9Ä O`ë 3î ˇˇˇ‘PPê   lPùTê   O                         ª   ·J   ‰º  ·J   ‰s  s    ö'   ó   ª   ·J   ‰º  ·J   ‰s  s ¢ó   • 	`
+PˇˇˇˆPì 	`
+PˇˇˇÒP3Vê   ˘∆}yê   R   	              
+       Ω Œ   ﬂª   ·J   ‰9      <      <   º <   º  <	   s ·J
+   ‰m   w ﬂ•)`%	*	*	(	HPJˇˇˇ˚P4	P@   ˙Á†≤@                            ¡    º  w ﬂ• 	`	ˇˇˇˇP$PÄÄÄ‘   mG‘                          ﬁÕ   ﬂæ   m   L   ﬂæ   m   L   ﬂæ   m   L   ﬂæ   m   L   ﬂæ   m	   L
+   ﬂæ   m   L   ﬂæ   m   L   ﬂæ   m   L   ﬂ•&`O	`O`O+`OÄ  `OÄ `OÄ v`OÄ Ç`?Ä äPÄÄÄ‰   äŒV<‰   ©                      ﬁÕ   ﬂæ   º  L   ﬂæ   æ   J   ö'   ó   æ   J   ·J   ‰   s ô   ó   ó   L   ﬂæ   º ö   ó   º ô   ó   æ   J   ó	   L   ﬂæ   h    L   ﬂæ   h    L   ﬂ•&	`-	`¨ )Pô 	`≤ 	`/	`/PÄÄ<   gf<                         ﬁÕ   ﬂæ   º  L   ﬂ•&	`-PÄÑ   ¿˛¨Ñ   G                        Ω  Œ   ﬂΩ Œ   ﬂª   ·J   ‰¡   J   J   s ·J   ‰m   w ﬂ¡   ¢•í 	`ˇˇˇ˚P
+/ˇˇˇ¯PD	`%QÄ¸  TäÆ—¸  }  	                    Ω  Œ   ﬂ¡  J   J   ¡   KJ   Õ   ﬂæ   ö6   ó   ¡  J   J   ¡   Kª   Äæ   „  Å L   ﬂó   ¡  J   J   ¡   KJ   Õ  ﬂæ  ·   ü1   ó   ·	   üN   ó   ·
+   üg   ó   †Ü   ó   ª   Œ   ﬂª       ¡  s Œ   ﬂôX   ó   Œ   ﬂª       ¡  s Œ   ﬂô.   ó   ª   Œ   ﬂª       ¡  s Œ   ﬂó   ¡   ö*   ó   ¡  J   J   ¡   Km   L   ﬂó   •)`ü `.`õ >ˇˇˇıPN`ü@`¡ `+`1ˇˇˇ‡P)` `'`1ˇˇˇ‡P)` `+`,ˇˇˇÂPN`/`•@	PÄÄÄ   ääÒ«Ä   @         	              ﬁÕ   ﬂº   ¡    æ   ·J   ‰s  ¡   ¡  J   J   ¡   Ks w ﬂ•&`	Pï ˇˇˇÃPˇˇˇˇP$PÄ†  ÿiß‹†  °               @       Ω  Œ   ﬂΩ Œ   ﬂﬁÕ  ﬂm   Œ 	  ﬂm   Õ   ﬂm   Õ  ﬂæ  J   ö   ó   æ  J   ô#   ó   ¡   J   ·J   ‰   s ó   Œ   ﬂæ  J   ö   ó   æ  J   ô   ó	   ¡   ·J	   ‰
+   s ó   Œ   ﬂæ  J   Œ   ﬂæ  J   Œ   ﬂæ  J   Œ   ﬂæ   w  ﬂª    ¡   ¡   w ﬂª    ¡   w ﬂª       s ·J   ‰   w ﬂª       s ·J   ‰m   w ﬂª       s ·J   ‰w  ﬂª    w  ﬂª       s ·J   ‰   w ﬂª    ¡   w ﬂ¡   ·J	   ‰   s ·J   ‰m   w ﬂ¡   ·J    ‰!   æ   w ﬂ¡   ·J    ‰"   æ   w ﬂæ    #   w ﬂ¡   ·J	   ‰$   s ·J    ‰!   m%   w ﬂ¡   J&   ·J'   ‰m(   w ﬂª    )   s J*   Œ 
+  ﬂ¡ 
+  ö(   ó<   ª    )   s ·J   ‰m+   w ﬂó@   •∑ `º (P.`∑ (P.`/`/`/	`)	`	ˇˇˇˆP$	`ˇˇˇˇP$	`Pê PD	`P
+"ˇˇˇ˚PD	`P
+%P$	`J	`PP$	`ˇˇˇˇP$	`ë P
+4ˇˇˇ˚PDa	`ë ˇˇˇÛP$	`ë ˇˇˇÛP$	`
+PDe	`ë P(ˇˇˇÛPDn	`ë ˇˇˇ¯PDÄ  ª'`P.`ë `P
+ˇˇˇ˚PIÄ  ”PÄÄ  Ï*ùå  ¶                        ﬁÕ   ﬂª    æ   s ·J   ‰   s ·J   ‰   ª    æ   s ·J   ‰   s w ﬂª    æ   s ·J   ‰   s ·J   ‰   ª    æ   s ·J   ‰   s ·J   ‰   s w ﬂ•&`ˇˇˇˇPPˇˇˇ˛PPˇˇˇÎP$`ˇˇˇˇPPˇˇˇ˛PPPˇˇˇ‹P$	PÄ†   Ã‹∞†   \                 
+       ª    º s ·J   ‰   s Õ   ﬂæ   ·J   ‰   s J   õ   ó   æ   ·J   ‰   w ﬂó
+   • `ˇˇˇˇPPH`ê Pí `ê PI	PÄp   =v|Èp   =                        ﬁÕ   ﬂæ   J   ·J   ‰   s ö   ó   æ   ·J   ‰w  ﬂó   •&`ï P-`PI	PÄX  mMz9X  ‚                         º  õ   ó    ¢ó   ¡  J   öæ   ó   º  J      ö   ó   ¡  ·J   ‰m   w ﬂó   ¡  ·J   ‰s  Œ   ﬂ¡  ·J   ‰m   w ﬂ¡  ·J   ‰ª	   ·J
+   ‰¡   s w ﬂº     ú   ó   ﬂ¡  ó   ö   ó   ¡   w  ﬂó   • `-`A	F`î `ò `ˇˇˇ¯PI
+`P)`ˇˇˇ¯PD`ˇˇˇˆPˇˇˇ˜PD`î ñ `O	PÄÄÄd   eàâZd   *                         ª    º  J   s ·J   ‰º  ·J   ‰s  w ﬂ• `ˇˇˇˇP
+
+Pˇˇˇ¯P$PX   8œƒØX   -                         ¡   º  J   ª   J   º  J   K·J   ‰s  Nﬂ• `ß 3P%Pl  E/“l  º                ,        ª       s Õ   ﬂª       s Õ  ﬂ¡   J   J   Õ  ﬂª   ·J   ‰æ     s ù#   ó
+   ﬂª   ·J   ‰æ  	   s ó   Õ  ﬂæ  ú   ó   ﬂæ   J
+   ó   öm%t⁄ã   ó   ¡   ·J   ‰   s Õ  ﬂæ  ·J   ‰   w ﬂ¡   ·J   ‰   s Õ  ﬂæ   ·J   ‰æ  s ·J   ‰w  ﬂó   æ  J
+   ö{   ó   ¡   ·J   ‰   s Õ  ﬂæ  J
+   õ-   ó    ¡   ·J   ‰   s ·J   ‰s  Õ  ﬂó$   æ  ·J   ‰æ  s ·J   ‰w  ﬂó(   ¡   ·J   ‰   s ·J   ‰m   w ﬂ• #`P(#`P($`î #`	ˇˇˇ¸Pö 2	ˇˇˇ¸PM`ß %`ë PH`ê PD-`ë P(`ˇˇˇÛP
+$PI`ì -`ë PH`ì `ë P
+PM`ˇˇˇÙP
+#PI`ë P
+$ˇˇˇ˚PD'	PÄÄÄ¿   çe¿   u                
+        ﬁÕ  ﬂª    æ  s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ   ·J   ‰   s Õ  ﬂæ  J   õ   ó   æ  ·J   ‰   w ﬂó
+   •&`ˇˇˇˇP( `ê P("`ê PH`ì `ê 	PIPÄ»   ûÿ{D»   u                        ﬁÕ  ﬂª    æ  s ·J   ‰s  Õ   ﬂ¡   J   ª    æ  s ·J   ‰   s KÕ  ﬂæ  ö   ó   æ  ·J   ‰æ   w ﬂó   •&`ˇˇˇˇP
+P(`ê ˇˇˇ˛PPI`.`ˇˇˇ˜PI	PÄÄ§  ààú°î    	             y      Ω  Œ   ﬂ¡   J   J   ö“   ó   ∞±  ﬂ¡   J   e·J   ±  ﬂﬂ¡   J   ·J   ‰   s ·J   ‰	   w ﬂª
+       ¡   J   1&   &s ·J   ‰   ¡   J   1&   &æ  1&   &w ﬂª    ª
+       ¡   J   &   &s ¡   J   w ﬂ“ó   ¡   J   J      öw   ó"   ª   J   ¡   J   Kö*   ó'   ª   J   ¡   J   K·J   ‰w  ﬂó-   ª    ¡   J   w ﬂ¡  ·J   ‰¡   w ﬂó2   ¡   J      ú    ó5   ﬂ¡  J   J      ó8   ö¶   ó9   9    !   <"   #   <$   %   <&   h   %   i    <'   (   <)   Õ   ﬂª*   ·J+   ‰¡   J,   Kª-   ·J.   ‰æ   ¡   J   J/   s s Õ  ﬂ¡  ·J   ‰æ  w ﬂóL   ª0    ¡   w ﬂª1    ¡   w ﬂª2    ¡   w ﬂ¡  ·J3   ‰4   ª5   w ﬂ¡   ·J3   ‰6   ª-   ·J7   ‰¡	  ,98   Ë<9   s w ﬂ¡   ·J3   ‰:   m;   w ﬂ¡   ·J3   ‰<   m=   w ﬂ¡   J   ·J>   ‰?   s öf   ód   ¡   J@   Õ  ﬂæ  öI   óf   ªA    æ  s Õ  ﬂæ  B   ö#   ój   ¡   J,   ·JC   ‰æ  w ﬂóm   ¡   J   D   ö   óp   ªE    mF   w ﬂór   ¡   JG   ö$   ót   ¡   JG   ·JH   ‰mI   w ﬂów   ªJ    ¡   ¡  w ﬂ•I`ô &.`ó `ñ PP$`;í ˇˇˇƒP
+hETí LtPD`&ë ˇˇˇ˙P!
+ˇˇˇﬁPJ`ü `ü `ú PI`
+ˇˇˇˇP$`ˇˇˇ˚PI`ø `%***î O`	ˇˇˇÒPˇˇˇﬂP(`
+ˇˇˇ˚PI"`ˇˇˇˇP$`ˇˇˇˇP$`ˇˇˇˇP$`ë ˇˇˇÙP$`ë ˇˇˇ‡PˇˇˇÚP$`ë ˇˇˇˆPD2`ë ˇˇˇÛPD5`ñ P-`/`.%`ˇˇˇˇP(`î `ë ˇˇˇ˚PI>`ö `ˇˇˇˇPIC`î `ë ˇˇˇ¯PIJ`ˇˇˇ¯P$	PÄÄ§     "   »   ˇˇˇˇ¥   Ì˛∆÷¥   T                         ª    º  ¡  w ﬂª    º  w ﬂª    º  w ﬂª    ¡   w ﬂº  J   ·J   ‰m   w ﬂ• `ˇˇˇ¸P$`ˇˇˇˇP$`ˇˇˇˇP$`ˇˇˇˇPD`ˇˇˇ¯PD
+PÄX   ˝πkX                            ª    º  w ﬂª    º  w ﬂ• `ˇˇˇˇP$`ˇˇˇˇP$PÄÄÄ@   x†∏@                             ª    ¡   w ﬂ• `ˇˇˇˇP$PÄ@   ª“æì@                             ª    ¡   w ﬂ• `ˇˇˇˇP$PÄt   S÷æBt   -                         ª    º  ¡  w ﬂª    º  w ﬂª    º  w ﬂ• `ˇˇˇ˜P$`ˇˇˇˇP$`ˇˇˇˇP$Pd  FfDed  Â                        ª    º s Õ   ﬂ   Õ  ﬂ   Õ  ﬂæ   ·J   ‰   º  w ﬂº  ö1   ó   æ   ·J   ‰   s ·J   ‰æ  w ﬂôr   ó
+   º  &¡ 
+  ö1   ó   æ   ·J   ‰   s ·J   ‰æ  w ﬂô1   ó   æ   ·J   ‰   s ·J   ‰æ  æ  &w ﬂó   •  `ˇˇˇˇP("`J"`J`ê $ˇˇˇÂPD`/`ê 	P
+!ˇˇˇ˚P.`
+ê `ê 	P
+!ˇˇˇ˚P `ê 	P
+!ˇˇˇÓPIPÄD   t¸$ D                            ﬁÕ   ﬂæ   Œ   ﬂm   ¢•&`*	`EQÄÄD   rœP'D                            ¡   ·J   ‰º  w ﬂ• `ˇˇˇÓP$	PÄ4  
+Ã:{‘  Ø               _       $ﬁÕ   ﬂæ   J   ·J   ‰   w ﬂæ   J   öÅ  ó   æ   J   æ   ·J   ‰s  L   ﬂæ   J   ·J   ‰   s J   ö  ó   ∞±  ±  ±  ﬂm
+   ±  ﬂæ   J   J   ±  ﬂ   ±  ﬂæ  Õ  ﬂ∞±  ﬂæ  ^ò   _`õè  ó   ∞±  ﬂ±  ∞±  ±  ﬂæ  æ  K±  ﬂæ   J   J   J   æ  K±  ﬂæ     ö4   ó   æ     ª    æ  s 1&   &&.Õ  ﬂô  ó   æ     ù   ó    ﬂæ     ó!   ö∏   ó"   –   ≥   ﬂæ  ·J   ‰m   w ﬂæ  æ   9   æ  J   <   ª       s ·J   ‰    ¡   s <!   æ  <   "   <#   $   <%   m&   <'   m(   <)   m*   <+   s &.Õ  ﬂ—ô   ó4   æ  ,   ù   ó6   ﬂæ  -   ó7   öÖ   ó8   æ  æ   9.   æ  J   <   ª    æ  KJ/   s <!   æ  <   "   <#   $   <%   m0   <'   m1   <)   <2   s &.Õ  ﬂôr   óH   æ  3   ö^   óJ   æ  4   ª    æ  J   s 1&5   &æ  ·J6   ‰m7   s ·J8   ‰   s 1&9   &&.Õ  ﬂóV   “ﬂôn˝ˇˇóV   a“æ   J   ·J:   ‰;   æ  1&<   &w ﬂ §“•“ó[   æ   J   ·J   ‰æ   J   w ﬂó_   •&	`ï P$`ì `î #P)`ï Pí 'ò "`ì "`ì@-#fù ˇˇˇÛ*"`.#`ù@1`î `I4&ˇˇˇPú@7 `Æ 6%*`'`ˇˇˇ¯PD>`	'%.P%ˇˇˇÚP()***JKJ>'Pï@M `Æ `	'%.ˇˇˇP()***J[FN'Pî@] `î `I`'	ˇˇˇPKb'	ˇˇˇ¸P-Pò@-Mh`ê -ˇˇˇŒP$`AmIk`ê 	ˇˇˇ˘PImPÄ4  $  	   v     ˇˇˇˇ   ¥   ©         €   u        Ü  §          Ö               ø   ó  0  8#Ï0  „                        º  e·J   Õ   ﬂ·J   Õ  ﬂ·J   Õ  ﬂ·J   Œ   ﬂ·J   Œ   ﬂ·J   Œ   ﬂ·J   Œ   ﬂ·J   Œ   ﬂ·J	   Œ   ﬂﬂ
+   æ   ö)   ó
+      ª    æ   s 1&   &ô   ó      ó   1&   &æ  ·J   ‰m   s ·J   ‰   s 1&   &¢•Ó `Eì@'ˇˇˇPï0í 	ˇˇˇ¸PJ  UK#QÄÄÄ(  Ñù‚Ù  e         	       7      ∞±   ±  ﬂº  ¡   Kö!   ó   ª    º  ¡   Ks ô   ó      ó   ±   ﬂº  ¡   Kö!   ó   ª    º  ¡   Ks ô   ó
+   ª    s  ó   ±  ﬂ   æ   öp   ó      æ   ·J   ‰s  1&   &º  ¡   Kö   ó   æ  ·J   ‰s  ô   ó   ª    	   s ó   1&
+   &ô   ó      ó   1&   &¡   õ^   ó      æ   ö/   ó      æ   ·J   ‰æ  s 1&   &ô   ó!      ó!   1&   &ô   ó#      ó#   1&   &¡   ö(   ó&      ¡    º  s 1&   &ô   ó)      ó)   1&   &¡   ö(   ó,      ¡    º  s 1&   &ô   ó/      ó/   1&   &¡   ö(   ó2      ¡    º  s 1&   &ô   ó5      ó5   1&   &§“•“• *3`ô 	ˇˇˇ˘Pú 1`ô 	ˇˇˇ˘Pì P-!`E3ì 7
+Pû Pò 	Pöí@/%7ì ˇˇˇ˚P±0í@/î -
+ˇˇˇˆPß /î 3ˇˇˇÛPß /î 9ˇˇˇPß@TÄÄ(         d  ˇˇˇˇ    b           JKs  ±                       ∞±   ±  ﬂº  J   ö    ó   ª    º  J   s ô   ó      ó   ±   ﬂº  J   ö    ó   ª    º  J   s ô   ó
+   ª    s  ó   ±  ﬂ¡   µ   æ  ·J   ‰æ      s &.Œ   ﬂ“• */`ò ˇˇˇ˘Pú -`ò ˇˇˇ˘Pì P-`ï 	ˇˇˇ˚P,P         ∞   ˇˇˇˇ@   E EÖ@                            ª    º  J   s ¢ `ˇˇˇˇP¨   |ÔÈò¨   l                            ª    º  J   s 1&   &º  J   ö-   ó      ª    º  J   s 1&   &ô   ó      ó   1&   &¢• !`%'ˇˇˇP+'ó ˇˇˇPß@Q@   E E/@                            ª    º  J   s ¢ `ˇˇˇˇPh   Áã“ˇh   ,                         ª    º  J   s 1   &ª    º  J   s 1&¢ ` ˇˇˇˇP
+ˇˇˇP!ÄÄ¨    ≤M¨   l                            ª    º  J   s 1&   &º  J   ö-   ó      ª    º  J   s 1&   &ô   ó      ó   1&   &¢• !`%'ˇˇˇP+'ó ˇˇˇPß@QL   ûØìL                               ª    º  s 1&   &¢ `ˇˇˇPÄÄ\  ±£X2L  È                     ﬁÕ  ﬂº  öÀ   ó   º  J   J   ^ò   _`õÖ   ó   Õ   æ      ú6   ó   ﬂª   ·J   ‰º  J   J   s ·J   ‰   s ó   ö'   ó   º  J   J	   æ   K   L
+   ﬂó   ﬂôxˇˇˇó   aæ  æ  ·J   ‰º  ª   s L   ﬂó   æ  ·J   ‰w  ﬂ•&`-`† ˇˇˇı$`° !ˇˇˇ˚P%Pí `¢@L`"ˇˇˇÎPN		`P$PÄÄÄ\        !   ç   ‡   —p^Ç–   ~                       ﬁÕ   ﬂ∞±  ﬂª    æ   J   s ·J   ‰   s ±  ﬂæ  öA   ó   æ  J   9   L   ﬂæ  ·J	   ‰9
+   w ﬂæ  ·J   ‰w  ﬂó   “•&`	ˇˇˇˇPP(`.`î `ˇˇˇ˜P$`PJPÄ‡         w   ˇˇˇˇ0  hm∫  Ω                       ∞±   ±  ﬂº  J   ú   ó   ﬂº  J   J   ó   ±   ﬂª       s ±  ﬂæ   ú   ó   ﬂæ  ó   öW   ó   ∞±  ﬂæ  ·J   ‰s  ±  ﬂæ     æ   J	   &
+   &&.Õ  ﬂæ  ·J   ‰æ  w ﬂ“ó   “• 
+*`™ `P(	`¢ &`P(	`	ó 	`ˇˇˇ˚P;PÄÄ0         º   ˇˇˇˇ   i   M       Ã   ì	ÖéÃ   ä                        º  J   ·J   ‰   º  J   &   &s Õ   ﬂº  J   ú   ó   ﬂº  J   J   ó
+   ö4   ó   æ   ·J	   ‰º  J   J
+   º  J   J   w ﬂó   • `?ˇˇˇºP(	`Ø 	`ˇˇˇﬂP9P0   Q”êπ0                                 ¢• 	`%QÄÄ¸   µ2∂¸   °         	              ﬁÕ  ﬂæ  Õ   ﬂº  w  ﬂæ   ·J   ‰s  õv   ó   9      <      <      <   <	   Õ  ﬂª
+    æ   J   s ·J   ‰ª   ·J   ‰æ  æ   J   J   s w ﬂó   •&`)	`(`P-)`%***K
+`	ˇˇˇˇP
+ˇˇˇ„PˇˇˇÔPIPÄ0   Ó≥~0                                 ¢• `%	QÄÄ–  QR∞†          	             $ﬁÕ  ﬂ∞±  ±  ﬂæ  Œ   ﬂº  w  ﬂ¡   J   ·J   ‰   s ±  ﬂ¡   J   J   ù   ó   ﬂ
+ó   ±  ﬂÕ   ﬂò   æ   æ  &öe   ó
+   ∞±  ﬂ   ¡   J	   &
+   &æ   &   &æ   &   &±  ﬂæ  ·J   ‰æ  w ﬂ“æ   0(Õ   ﬂôèˇˇˇó   ª       ¡   J	   &   &s ·J   ‰   m   w ﬂ“•*`*`(`ñ P(`¶  `fë &`ë %+ ê@	`ˇˇˇ˘PE.`ï@`ë ˇˇˇ˘P*ˇˇˇÙPE	PÄÄÄ–  ¿          ˇˇˇˇ   á   K              l   v   H  ˝˙~s8  Õ                       ﬁÕ   ﬂ–   æ   J   J   ≥   ﬂª       ¡  J   &   &s ·J   ‰m	   w ﬂª    æ   s ·J
+   ‰   s ·J   ‰   s ö2   ó   ¡  J   ·J   ‰æ   J   J   w ﬂô    ó   ¡  J   ·J   ‰w ﬂó   —•%`î `ë ˇˇˇ˘P
+#ˇˇˇ˚PD`ˇˇˇˇPPP-`ë ˇˇˇ¸P.`í P*PÄÄH        ¡   ˇˇˇˇÑ   !Ñ∂ËÑ   L                        ﬁÕ   ﬂ¡   µ   æ   J   J   ö'   ó   ª    æ   s ·J   ‰   w ﬂó   •&`
+ô `ˇˇˇˇPP)P0   Q”êπ0                                 ¢• 	`%QÄÄ\  ©É˘\  Ú                       ﬁÕ   ﬂæ   Œ   ﬂº  w  ﬂ¡   J   ú6   ó   ﬂ¡   J   J   ú   ó   ﬂ¡   ·J   ‰s  ó	   öl   ó
+   h    Œ   ﬂ¡   J   ·J   ‰m   w ﬂª   ·J   ‰¡   J   J	   J
+   J   9   ¡   <   m   w ﬂó   ª    ¡   J   s ·J   ‰m   w ﬂ•&`*	`(`Ω *Pí `+`ë ˇˇˇ¯PD`ô /
+ˇˇˇπPI	`
+ˇˇˇˇP
+ˇˇˇ˘PDPÄH   d“´`H                            ¡   ·J   ‰º  J   w ﬂ• `
+ˇˇˇ˚P$P¨   x˘≈t¨   d                         h    Œ   ﬂº  J   ö"   ó   º  J   ·J   ‰m   w ﬂó   ¡  J   ·J   ‰¡   ·J   ‰   s w ﬂ• %`+`í `ˇˇˇ¯PI`ë ë PˇˇˇÌP$PÄH   æÍPvH                            ¡   ·J   ‰º  J   w ﬂ• `ˇˇˇ˚P$P®   ‡ïhö®   ]                        ª    ¡   J   s ·J   ‰s  Õ   ﬂ¡   ·J   ‰æ   w ﬂ¡   ·J   ‰w  ﬂ¡   ·J   ‰   w ﬂ• `
+ˇˇˇˇP
+PH`ˇˇˇ˜P$`P$`ë P$	P  ¯'W·  ≤   	                    Ω  Œ   ﬂm   Õ   ﬂ¡   J   öè   ó   ª       s Õ  ﬂº ú   ó   ﬂæ  J   ó   öH   ó   ª   ·J   ‰æ  ·J   ‰   s ·J	   ‰
+   º s æ   w ﬂô   ó   æ    w  ﬂó   •ì@	`î `P(`¶ `ê PˇˇˇÚPˇˇˇ«P `>PÄL   z˘szL                             ¡   J   ·J   ‰m   w ﬂ• 	`ë ˇˇˇ¯PDPx  /@nx                         ª    º  J   Ks ·J   ‰   s ö‡   ó   ª    º  J   Ks ·J   ‰   s Õ   ﬂº  J   ú   ó   ﬂº  J   J   ó   ù   ó   ﬂ9	   ó   Õ  ﬂh    Œ   ﬂæ   ·J
+   ‰æ  w ﬂº  J   ·J   ‰m   w ﬂª    æ  J   ú   ó   ﬂæ  J   J   ó   ¡   æ   w ﬂó   • `
+ˇˇˇˇPP-`
+ˇˇˇˇPP(`ø `+`ˇˇˇ¯P$`ˇˇˇ¯PD	`ß "ˇˇˇ◊PI	PÄH   ﬂÆ/H                            ¡   ·J   ‰º  J   w ﬂ• `
+ˇˇˇ˚P$PÙ  aÉıB‘  \  	                   Ω  Œ   ﬂ–   ∞±   ±  ﬂ¡  ·J   ‰s     ö   ó    §—•ó   ¡  ·J   ‰s  ±   ﬂæ   J   ¡  J   K≥   ﬂ¡   J   2õ$   ó   J   2õ   ó   J	   ô   ó   ﬂ ó   ±  ﬂæ  ö"   ó   ¡  ª
+    æ  s L   ﬂó   æ   J   ¡  J   K≥   ﬂ¡   ú   ó   ﬂ¡   ó   öH   ó   ¡   J   ·J   ‰   m   w ﬂ¡   J   ·J   ‰   m   w ﬂó   —•	/	`Pì 	`1H`P(`ö `¿ 	`.	`.ˇˇˇ‰PN`ö@	`§@	`ñ  ˇˇˇÛPD	`ñ ˇˇˇÛP:PÄÙ        M  ˇˇˇˇ    :          t   ©lt   9                          ¡  ·J   ‰¡   µ   ·J   ‰s  ¡   µ   ·J   ‰s  w ﬂ• `ë Pë 	PˇˇˇŒP$	PÄÄt   ©lt   9                          ¡  ·J   ‰¡   µ   ·J   ‰s  ¡   µ   ·J   ‰s  w ﬂ• `ë Pë 	PˇˇˇŒP$	PÄÄT  Âtè»4  …   	                   Ω  Œ   ﬂ–   ∞±   ﬂ¡  ·J   ‰s     ö   ó    §—•ó   ¡  ·J   ‰s  ±   ﬂæ   J   ¡  J   K≥   ﬂ¡   öS   ó
+   ¡   ·J   ‰   m	   w ﬂ¡   ·J   ‰
+   m   w ﬂ¡  ·J   ‰¡   w ﬂó   —•	+	`Pì 	`1H`P(`ö@	`/	`ë ˇˇˇˆPD	`ë ˇˇˇÛPD	`%ˇˇˇ‡P:PÄT        ∫   ˇˇˇˇ    6          L   K^≤bL                             ¡  ·J   ‰¡   µ   w ﬂ• `%
+ˇˇˇ‡P$	PÄÄ<   ¬Oa4<                             ¡  ·J   ‰w  ﬂ• `P$	PÄò  °≈$+x                        –   ∞±   ±  ﬂº  J   J   ±   ﬂº  J   ±  ﬂª       s ú   ó   ﬂª       s Kó	   ≥   ﬂª       s ú   ó   ﬂª       s Kó   ≥   ﬂæ     ú   ó   ﬂ¡   ó   öQ   ó   ∞±  ﬂª    º  J
+   Ks ·J   ‰   s ±  ﬂª    æ  Kæ   m   w ﬂ“ó   —• 
+/`í `-`Pô %Pê `Pô &Pê 	`© &`
+ˇˇˇˇPP(	`	ˇˇˇ‰P;PÄò          ˇˇˇˇ	   ø   G       ‹  ‡“áÔ‹  j                )       ¡   µ   º  J   J   ·J   ‰s  L   ﬂ¡   µ   º  J   J   ·J   ‰s  L   ﬂª       s ú   ó   ﬂª       s Kó   Õ   ﬂª       s ú   ó   ﬂª       s Kó   Õ  ﬂª    	   s ú   ó   ﬂª    	   s Kó   Õ  ﬂæ   ö   ó   æ   º  J
+   L   ﬂó   æ  ö   ó    æ  º  J   L   ﬂó"   æ  ö/   ó#   æ  ª    º  J   ·J   ‰s  s L   ﬂó)   • `û %P)`û %P)`Pô P/`Pô P/`Pô P/`.`ó@	`.`ó@`.`
+ Pˇˇˇ„PN	P∏  Éåí6®  0                     Ω  Œ   ﬂΩ Œ   ﬂ–   ∞±   ﬂ9   h    <   h      i    <   h      i    <   h      i    <   ±   ﬂª   J   J	   J
+   Ä¡  „  Å ≥   ﬂ¡   ·J   ‰æ   J   w ﬂ¡   ·J   ‰h      i       i      i      i   w ﬂº ö"   ó   ¡   ·J   ‰º J   w ﬂó   ¡   ·J   ‰   m   w ﬂ—•í +`%	*	î 	î 	ô@`ï $	ˇˇˇ‹)`	ˇˇˇ˜P$`≠ ˇˇˇˆP$	`-	`&ˇˇˇÁPI`ë *ˇˇˇ„P55PÄ∏          ˇˇˇˇ∏  ÜÄ◊à  Œ         	       <       ∞±   ±  ﬂ¡   µ   ·J   ‰s  ±  ﬂæ  J   õ3   ó   ª   ·J   ‰   æ  J   &   &w ﬂ §“•ó
+   	   ±   ﬂæ  J
+   ö   ó   ∞±  ±  ±  ﬂæ  J
+   ·J   ‰m   s ±  ﬂæ  J
+   ·J   ‰m   s ±  ﬂæ  J
+   ·J   ‰m   s ±  ﬂæ  ù   ó   ﬂæ  ó   ö©   ó   æ  æ  ö   ó   æ  J   ô   ó   	   ó   L   ﬂæ  æ  ö   ó   æ  J   ô   ó   	   ó   L   ﬂæ  æ  ö   ó   æ  J   ô   ó   	   ó   L   ﬂó    h   æ  J
+   Kú   ó$   ﬂæ  J
+   KJ   ó'   ù   ó(   ﬂ	   ó(   i    æ  J
+   Kú   ó+   ﬂæ  J
+   KJ   ó.   ù   ó/   ﬂ	   ó/   i   æ  J
+   Kú   ó2   ﬂæ  J
+   KJ   ó5   ù   ó6   ﬂ	   ó6   i   ·J   ‰   s Õ   ﬂ“ó8   æ  ¡  J   L   ﬂæ  æ   L   ﬂ¡   æ  w ﬂ“• *`ë P(`ì `&ê ˇˇˇ‘P$`A'H`*`ì .!`ê ˇˇˇ˚PH`ê ˇˇˇ˚PH`ê ˇˇˇ˚PH`¢ `µ `µ `∫@`%ñ†/ñ†/ó°ñ UN$	`î 	`.	`	ˇˇˇˇP%PÄÄÄ∏         Õ  ˇˇˇˇ    ^             Å         `   wMPt`   4                         º  J   ú%   ó   ﬂº  J   ·J   ‰   s ˇó   ¢• `ß !P+QÄ`   wMPt`   4                         º  J   ú%   ó   ﬂº  J   ·J   ‰   s ˇó   ¢• `ß !P+QÄ`   wMPt`   4                         º  J   ú%   ó   ﬂº  J   ·J   ‰   s ˇó   ¢• `ß !P+QÄL  ≈ÙŒÇ<  ‚                       ∞±   ±  ±  ±  ﬂm   Œ   ﬂm   Œ   ﬂº  J   ù   ó   ﬂº  ó   ±   ﬂæ   ·J   ‰   s J   ±  ﬂæ  ö"   ó   æ   ·J   ‰   s ô   ó
+   æ   ·J   ‰   s ó   ±  ﬂæ  ·J	   ‰
+   s ±  ﬂª   ·J   ‰æ  m   w ﬂ“• 
+®@`† ` ê P/`û Pù P-`ê PH`ˇˇˇÛP5+PÄL         ·   ˇˇˇˇP  éy0  ∆                       ∞±   ±  ±  ±  ±  ﬂº  ·J   ‰      s ±   ﬂª    æ   ·J   ‰s s ±  ﬂª    æ   ·J   ‰s s ±  ﬂª    æ   ·J   ‰s s ±  ﬂæ  +*æ  K*&æ  r*&Ë+±  ﬂæ  õ §“•“• ñ `î P(`	Pˇˇˇ˚P(`	Pˇˇˇ˚P(`	Pˇˇˇ˚P(`	ë 	`(TÄÄÄP         ≈   ˇˇˇˇ    √          §   €û§   ^                         º  ·J   ‰   ¡    º s ö   ó      ô   ó      ó   w ﬂº  ·J   ‰º ·J   ‰s  w ﬂ• 	`ˇˇˇıP¶ ˇˇˇÚP$	`
+
+	PˇˇˇÚP$Pt  &d  ¥         	       -      –   ∞±   ±  ﬂª    º s ≥   ﬂ¡   ·J   ‰   s ±   ﬂª       æ   &   &s ·J   ‰      w ﬂ¡   ·J	   ‰
+   s ·J   ‰9      <   <   <   h   h      i    i    h      i    i   h      i    i   h      i    i   h      i    i   <   <   m   <   w ﬂ¡   ·J   ‰   s ±  ﬂæ  ·J   ‰   s ·J   ‰   ª     !   ª"   s 1&#   &w ﬂ¡   æ  ·J   ‰$   s ¡   ·J   ‰%   s ·J&   ‰s  w ﬂ—• /`ˇˇˇˇP)`ë P(	`ˇˇˇÔPî $P$	`ë P
+;%*&&
+î î î 	î ô &JBPD`ë P(	`ê P
+%0ˇˇˇ‰PK(PD	`ê Pë P
+Pˇˇˇ¬P%PÄÄÄt        Æ  ˇˇˇˇ‘   ~	„êƒ   q                 	      ∞±   ±  ﬂº  ·J   ‰s  ±   ﬂ¡   µ   ·J   ‰   s ±  ﬂ¡   ·J   ‰æ   w ﬂ¡   æ  ·J   ‰   s æ   w ﬂ“• *"`
+P($`ñ P(`ˇˇˇ¸P$`ê PˇˇˇŸP%P‘          p   ˇˇˇˇÏ   Áœœè‹   Ö                
+      Ω  Œ   ﬂΩ Œ   ﬂ–   m   Õ   ﬂ   ¡  1&   &≥   ﬂæ    w  ﬂ¡  ·J   ‰   m   w ﬂª    ª	   s ·J   ‰   ¡   æ   w ﬂ—•í /` ì@`I`ë ˇˇˇÛPD`ˇˇˇˇPˇˇˇ·PPÏ         m   ˇˇˇˇà  [f¶·h  ˚          	              $∞±   ±  ±  ﬂh    ª   ·J   ‰¡   µ   s ·K‰u  d·J   ‰ÂÂò   „  „  s  d ·J   õ   ó
+   J   jô◊ˇˇˇó   ÂÂ‡ ﬂ±   ﬂæ   ·J   ‰m   s ±  ﬂæ   ·J	   ‰m
+   s ±  ﬂ¡  ·J   ‰   æ  w ﬂ¡  ·J   ‰   æ  ú   ó   ﬂæ  ó   w ﬂ“• .!`
+ˇˇˇÔPÿ `ˇˇˇ˙P(`ˇˇˇ˚P(	`ë ˇˇˇP$	`ë ô ˇˇˇÍP%PÄÄà  x         ˙   ˇˇˇˇ      B   .   0   ¨/µ10   	                         º  J   ¢ `	Ä0   ¨/µ10   	                         º  J   ¢ `	Äx   Xv¶h   -                       ∞±   ﬂº  J   J   ±   ﬂª    ¡  æ   w ﬂ“• &`í 	`ˇˇˇ˘P%Px          ,   ˇˇˇˇl   Lg∞ˇl   2   	                     Ω Œ   ﬂª       º  &   &s ·J   ‰m   w ﬂ•)`!
+ˇˇˇﬁP
+1ˇˇˇ˚P4PÄ‡    
+`S–   ~                       ﬁÕ   ﬂ∞±  ﬂª    æ   s ·J   ‰   s ·J   ‰   s ±  ﬂ¡   æ  ö1   ó   ª    æ   s ·J   ‰   s ·J   ‰w  ﬂó   “•&`ˇˇˇˇPPP(`	/`ˇˇˇˇPP
+PJP‡         w   ˇˇˇˇ0   Q”êπ0                                 ¢• 	`%QÄÄ|   ∑ºî|   F                       ﬁÕ   ﬂæ   ·J   ‰w  ﬂæ   æ   J   J   L   ﬂæ   æ   J   J   L   ﬂ•&	`PD	`ò 	`ò PÄÄÄL  !kªÍ  .     
+          0      $ﬁÕ  ﬂ∞±  ±  ±  ±  ±  ﬂæ  Õ   ﬂæ   ·J   ‰s  ±  ﬂæ  J   æ   J   K±  ﬂæ  J   ±  ﬂm   ±  ﬂæ   J   ù   ó   ﬂæ   æ  s ó	   ±  ﬂº  ö}  ó
+   ´∞±  ±  ±	  ﬂª	    º  æ  s ±  ﬂº ö   ó   ª	    º æ  s ô   ó   ª	    s  ó   ±  ﬂæ  ·J
+   ‰s  ù   ó   ﬂæ  ·J
+   ‰s  ó   ö   ó   ª   ·J   ‰   w ﬂó   ª   ·J   ‰æ  ·J   ‰æ     s s ±	  ﬂæ   ·J   ‰æ	  w ﬂæ   J   ·J   ‰   æ	  w ﬂ“ô\   ó&    §≠∞±  ﬂ±  ﬂª   ·J   ‰   æ  w ﬂæ   ·J   ‰w ﬂæ   J   ·J   ‰   w ﬂ“ó.   ô   ó.   æ   ·J   ‰w ﬂó0   “•ñ `)`P(`ò `.`J
+`ô !ˇˇˇÚPM`-/`ˇˇˇÙP(`ì 	ˇˇˇPì PM`PPì `ë PI"`		ˇˇˇ˚PˇˇˇıPH`ˇˇˇ˜P$`ï )ˇˇˇ‰Pí@+`ë -ˇˇˇ€P$`P$`ñ Pî0  `PJ#PÄÄÄL  <        '  ˇˇˇˇ   †            π  O               †     ê   k>à¿p   4                       ∞±   ﬂº  ·J   ‰      s ±   ﬂª    æ   s §“•“• &&`î P(`'ˇˇˇ‡P#	Tê          3   ˇˇˇˇ    1          0   Q”êπ0                                 ¢• 	`%QÄÄ|   ˜‚:A|   F                       ﬁÕ   ﬂæ   ·J   ‰w  ﬂæ   æ   J   J   L   ﬂæ   æ   J   J   L   ﬂ•&	`PD	`ò 	`ò PÄÄÄå   â⁄I|   ?                      Ω  Œ   ﬂﬁÕ   ﬂ–   æ   ≥   ﬂ¡  ·J   ‰s  ·J   ‰m   w ﬂ—•%`J	`P
+ˇˇˇ¯PEPå         *   ˇˇˇˇ<  0L7H  ¿                       ∞±   ﬂ¡  J   º K±   ﬂæ   öú   ó   ∞±  ﬂæ   J   ¡   µ   J   K±  ﬂæ  öd   ó   æ  J   ·J   ‰   s ·J	   ‰   m
+   w ﬂæ  J   ·J   ‰   s ·J	   ‰   m   w ﬂó   “ó   “• &`ì `
+&'`û `.`ï P/ˇˇˇÈPD`ï P7ˇˇˇÂPê@	PÄ<         ø   ˇˇˇˇ   '   í       D   —ººëD                             ¡   µ   ·J   ‰w  ﬂ• `ë P$PÄÄÄD   —ººëD                             ¡   µ   ·J   ‰w  ﬂ• `ë P$PÄÄÄÙ   ‹$‰   é                       ﬁÕ   ﬂ–   ∞±  ±  ﬂæ   ±  ﬂæ   ·J   ‰s  J   æ  J   K±  ﬂ≥   ﬂæ  ö(   ó   æ  ·J   ‰s  ·J   ‰m   w ﬂó
+   æ   ·J   ‰¡   w ﬂ—•/`)`Pó `G`.`P
+ˇˇˇ¯PI	`ˇˇˇ˜P%PÄÙ         Ç   ˇˇˇˇÄ   [x–lp   <                       ∞±   ﬂº  J   ù   ó   ﬂó   ±   ﬂ¡   µ   æ   &.Œ   ﬂ“• &`û `ó PÄÄÄ          ;   ˇˇˇˇ3ıÿ  `$      ã       `  `$  
+     @  "  9      <  |     p  `  ´               `<  	  `,        `    ®  y     ¶   !  $  (  )  %  &  '  *  +  	  p  `o  :      ∏     p  `I  J  K  L    `$  a  P  Q    `r  S  T  ç U    `@  "  N  ∏     p,    pP  t  V      `$  ´   n  p  @  q  r    `$  X  Z      _  Í   ]  ^  @  ´   `  a  b  d  e  f  h  i  j  k  á     p  `$  ´     :  r  B  ;    `$  ´   ;  E  @  F  G    `$  P  v  :  ç w    `ô  ö    `4  ô  ö  ò  x  ∏     p  `ò    `¶    `4  ô  ö    `   y    `z  I  ´   {  a  |  $  }  r  ~    Ä  Å  Ç  É  #  Ñ  "  Ö  S  T  ç Ü  á  à  â  ä  ã    @ç  å  è  é  “ ê  ë  ì  í  î  ï  .  _  ñ  ó  ò  ô  ö   õ  4  ú  ù    @û       p=    pJ  †    ¢  £    §  •    px  ∏     p®    `$  Æ  ∞  :  ±  ´   ≤  @  
+  `  p  p  p  0  1  2    ´     <      4  5  $  6  7  8  9  á     p<  =  >  ?  @  ã   A  B    p s  N    t    px  ∏     p™  @    p  `-    `  p!  `"  `   ã   Ã  Õ  ]  Œ  œ  –  —  “  ”  (  æ   )  ‘  ’  ÷  ◊  ÿ  Ÿ  ⁄  €     `ª  º    Ω  æ  ø  ¿  ¡  ¬  √  ƒ  ≈  ∆  ã   «  »    p5  ‹  &  `'  `‰     ã   Â  Ê  a  (  `≈  Á  )  `Í  ≈  Î  Ï  (  )  ã   Ì  *  `≈  Ó  +  `≈  Ò     Ú  ,  `Í  ≈  Û  Ù  (  )  ã   Ì  -  `¯  ≈  ˘    `  ∂  Ü    ≥  1  ∑  @    `  p  ã   #  `$  `    ﬁ  ﬂ  ≈  ‡  ·  ‚  %  `∏      p  @Á  ª  œ  Ë  À  È  º  ‰  Ω  Â  æ  !  pø  "  p¿  #  p¡  Ô      @Ò  $  p%  p¬  ı  ˆ  ˜  »  &  p5  ˙  @  ˚  ◊  .  `    ˛  o  :  ¸   §     ¶   "    ˇ    µ  /  `0  `$    ∂  …       @  w    @   `  p    p    p  
+  p-    p≥    pµ  '  p¸  (  p  1  `2  `    $  ?  3  `@   Ó   4  `0  ´    ç 	 x    
+  @  8  `à  B  7  `$  I  J  > ´       6   @@   ∏   :  pA 
+  <  6  `x  ∏   9  p5  `8  px  $  C @  D   E À  È  ;  `Q ,  <  `Q ,  9  `:  ` F H J K   M π   N  P .   s  <  p=  p?  `U @  `V =  `>  ` R H J T     ?  p=  @  pU D  `_ Ï  ` B  a $  c e g h i j k l A  `B  `   W ç $  Y [ ˛  C  `I  ´     ] B  pJ  `m Å i K  `m Å h L  `m Å k G  `H  `~ _ î   Ä r  '  ã   x I  `´   E  pF  pG  pÇ i h k 5     B  ˛  E  `F  `  @n ˛  o p r s t u v w x _ y r  z { | } D  pO  `P  `À  #  ã   ß  Ü Q  `ã Ñ å ç   l T  `U  `§ 1  • P  ´   ¶ R  `S  `$  :  r  ï ñ ∂   ã   ó ò ô 	  @Ö ö õ ú û ü † ° ¢ ù £ L  ps  1  • ´   ß   ® œ  © ˇ  ™ ¶ …   § M  `N  `I  pJ  p0  1  2  @  ê ´   í $  á   K  pZ  `∂ [  `∂ X  `Y  `± ≤ y  |   B  ¥ O  p∏ P  p7  ∂ π \  `]  `  ∂ ª V  `W  `N  p≠ Æ  s  Q  p$  ± _  ``  `$  ´   ø 7  ∂ + ^  `$  Ω ]  á   S  pa  ` b  `   @       $  .   _  ñ      c  `! i  `- ˛   $  . / g  `h  `- ˛   $  .  ç * á   0  p0 / J  .  P  d  `e  `I  ´   "    $ f  `& ç ' € ‹ F  $  .  *  + /  pj  `4 l  `à  B  n  `à    m  `–  ∏   5  p.    5  9 o  `$  .  P  w  L  : s  k  `  @   ∏   3  p$  …      6 
+  <    @7 4  p.  s  6  pp  `F q  `√    I K O P t  `u  `« »  … r  `s  `H J K .  W  p v  `     À Ã Õ v  œ Ê  a   w  – — w  `“ x  `R y  `√    T ‘   `V Ä  `V |  `}  `x  ~  `J ‘ .  ÿ —  \  pŸ ]  pz  `{  `,  ∏   [  pÉ  `Ñ  `Œ Å  `Ç  `H J T ,  ∏   _  pw     `  p  p  p)  p*  p7  p;  p>  pA  pC  pH  pM  pR  p   $    ∂     
+  @+  p ,  p       @-  p.  p  ! 1 §  3   @1  p2  p2 4 ;    Pâ  ¡   @T  pU  p¬ V  pQ ¿ F   @X  pY  pZ  pU ^  pV ” R ˇXÑÃ  @                                                 ›       –                   ﬁ             ﬂ       2      ‡       !      ·             ‚       Û   ,   „       u      ‰       }      ‰       9      H        I      M        >      Á       C      Á       ]      3        U      È       Ö      ‰       ü   K   ‰       è      Í       å      Î     ! ó      Í       ô      Í       õ      Í       Í   	   ‰       !     Ï            Ì       x  =   Ó       ;     ∫        #          ! O     Ò     ! W     ø      !
+ Z  	   ¿      !
+ c     ¡      !
+ f     ø      !
+ k  	   ¿      !
+ t     ı     ! µ     ˆ       ƒ     ˜       ·     ®        Ï     ò                                (            ?            0     ¯       *     ˘       S            k            U     ¯       [     ¯       X     ˘       c     ¯            4             =       ˙     ˚       ˜     ¸             ô             ˝            ˝       6     ö        2     ˛       4     ˛       R     ¶        C     ˇ       Ö     ]       m             a            e            i            ÿ     5        õ     É       ¢     à       ±  '          ©     s        ˝  
+   É        Í     Ø       Ê     	     ! Ë     
+     ! ¯                 ª                   }                 ¬       å     Q       Ü     ≈     !
+ £            •     ¬       ª     U       Æ            ™            ¨            √  	   V       ¿            ùH©¿      â      â                  Z   ∏   =   ∏                Ä◊   è  ∫   è  	               f  ã  ]  ã               §  ﬁH  ë  ﬁH                 ¬  π  π  π                €    “       !          Ä)  •     •  !   "          ÄÉ  Ö  z  Ö  "   H           ÷  m  Õ  m  7   L          ÇÕ  ¨-  ƒ  ¨-  ?   '           ﬁ
+  ñ  ’
+  ñ  J   5             å  Ø  É  Ø  T   L           ”  W  ª  W  \   !           Äx  @  a  @  b                3  á  *  á  h   +            ˘  g    g  m   .           _  `  J  `  x               *  T  !  T  ñ   @              ›    ›  §   @           Ä
+  Ã(    Ã(  ≠   +           ¢#  
+%  ô#  
+%  ‘   &            v$  ˙$  v$  ˙$  ⁄   $            5%  k%  ,%  k%  ﬂ   )             '  i'  '  i'  Ï   +             Ã'  à(  √'  à(  Ò   1            u)  ö-  l)  ö-  ¸   4          ÇÕ-  K.  ƒ-  K.                  .  E.  ˙-  E.              h.  )F  _.  )F               Ä «/  Ã8  ¶/  Ã8  #  2            ö1  y8  ö1  y8  +  (            5;  W<  5;  W<  T  &            ﬂ=  ˛=  ﬂ=  ˛=  _  (            *>  ??  *>  ??  `  +            n?  ì?  n?  ì?  f  .            }A  ÃA  }A  ÃA  o  (            ¯A  C  ¯A  C  p  +            õD  ¬D  õD  ¬D  }  0           WF  ˛G  NF  ˛G  ä  -           H  €H  H  €H  ñ               ˜H  8J  ‡H  8J  †              OJ  ZK  :J  ZK  ™              ªK  ÓK  ≤K  ÓK  ≤              L  ¿M  L  ¿M  µ  "            xN  ≠N  oN  ≠N  »              Ç‘N  •R  ÀN  •R  À  &          ˘P  ôR  P  ôR  ÷  A            mQ  ÿQ  dQ  ÿQ  ÿ  >             ‚S  T  ŸS  T  Í             Ç;T  X  2T  X  Ì  "            U  FU  ˛T  FU  Ú  (          ÄßU  ÓV  ûU  ÓV  ı  _            :V  èV  1V  èV  ¯  8            $W  X  W  X     )          ÄY  ¨\  Y  ¨\               IY  õ[  3Y  õ[               ÄxY  î[  oY  î[    +            ÿZ  [  œZ  [    -          Ä…\  `  Æ\  `  &              _  {_  _  {_  5  2             Æ_  `  •_  `  9  0           Ä8`  Fb  `  Fb  ?  !            Ta  °a  Ka  °a  H  (             œa   b  ∆a   b  L  +            Äb  g  ^b  g  U  #            Dd  
+g  ;d  
+g  \  G          Ä8g  éo  g  éo  o  #           Hi  äo  ?i  äo  |  8             ïj  ˚j  åj  ˚j  Ö  H            Bk  •k  9k  •k  à  E            Îk  Ml  ‚k  Ml  ã  D          Ä≠o  _w  êo  _w  ¶              –o  $q  Ωo  $q  ß              Cq  Ôq  *q  Ôq  ∞             
+s  \w  s  \w  ∫              Ït  ˛u  „t  ˛u  ƒ            Äèw  äz  aw  äz  ”  /           'x  êy  x  êy  ÷  )             Øx  Õx  Øx  Õx  ÿ  2            y  y  y  y  Ÿ  2            ”y  8z  Ày  8z  ‡            Ä®z  º{  åz  º{  Ë             ˆz  ∏{  Ìz  ∏{  È  @             |  k|  |  k|  Ú              Å|  }  x|  }  ı             -}  FÇ  $}  FÇ  ˚  !            +~  ‚~  +~  ‚~                 %É  WÉ  É  WÉ  &              mÉ  Ñ  dÉ  Ñ  )             Ç3Ñ  á  *Ñ  á  /  /           óÑ  á  éÑ  á  2  5            ›Ö  &Ü  ‘Ö  &Ü  7  c             ìÜ  ‹Ü  äÜ  ‹Ü  :  k           /á  ≤à  &á  ≤à  A               à  Çà  
+à  Çà  G  5          5°›Ç·Ñ y√3Ü      	gÜ°'gÜ°'G≈ÓgÜµï   u    O^partitionKey=%28https%2Ctalentadore.com%29,:https://ats.talentadore.com/static/alpaca_custom.js?v=4.6.0hm26-2964e10 necko:classified 1 strongly-framed 1 security-info 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 request-method GET response-head HTTP/2 200 
+date: Tue, 14 Jan 2025 16:36:11 GMT
+content-type: application/javascript
+content-length: 35089
+last-modified: Mon, 13 Jan 2025 15:38:26 GMT
+etag: "67853372-8911"
+cache-control: public
+strict-transport-security: max-age=15724800; includeSubDomains
+accept-ranges: bytes
+X-Firefox-Spdy: h2
+ original-response-headers date: Tue, 14 Jan 2025 16:36:11 GMT
+content-type: application/javascript
+content-length: 35089
+last-modified: Mon, 13 Jan 2025 15:38:26 GMT
+etag: "67853372-8911"
+cache-control: public
+strict-transport-security: max-age=15724800; includeSubDomains
+accept-ranges: bytes
+X-Firefox-Spdy: h2
+ ctid 2 uncompressed-len 0 net-response-time-onstart 341 net-response-time-onstop 584 alt-data 1;35089,javascript/moz-script-bytecode-20241209150345-8l alt-data-from-child 1  ˝Q

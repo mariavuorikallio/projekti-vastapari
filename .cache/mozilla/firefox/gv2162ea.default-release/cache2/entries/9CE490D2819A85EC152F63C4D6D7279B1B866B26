@@ -1,0 +1,1421 @@
+global_i18n_object['already_exists_i18n'] = $("#main_layout_attributes").data("already_exists_i18n");
+
+var sanitizeHtml = function (s) {
+    if (typeof s !== 'string') {
+        return s
+    }
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#x27;',
+    };
+    const reg = /[&<>"']/ig;
+    return s.replace(reg, function (match) { return map[match] });
+};
+
+function sanitizeList(list) {
+    return list.map(function (x) {
+        x = sanitizeHtml(x);
+        return x;
+    });
+}
+
+function renderOverlayMessage(message = '') {
+    if (message.length === 0) return '';
+    if (Array.isArray(message)) {
+        return "<h4>" + message[0] + "</h4><p>" + _.join(_.slice(message, 1), "</p><p>") + "</p>"
+    } else {
+        return "<p>" + message + "</p>"
+    }
+}
+
+function renderOverlayMain(overlayMainHtml) {
+    return overlayMainHtml ? `<div class="overlay-main">${overlayMainHtml}</div>` : '';
+}
+
+function show_confirmation_overlay(id, heading, message, cancel, confirm, fromShoppingCart, overlayMainHtml) {
+    var confirmTarget = (confirm.target) ? ('target="' + confirm.target + '" ') : '',
+        confirmHref = (confirm.href) ? ('href="' + confirm.href + '" ') : '',
+        $overlay = $(`
+            <div class="overlay-background overlay-close-no-confirmation" id="${id}">
+                <div class="overlay">
+                    <div class="overlay-header">
+                        ${(fromShoppingCart ? backToShoppingCartButton : '')}
+                        <div class="overlay-cancel-mark overlay-cancel"></div>
+                        <h3>${heading}</h3>
+                        ${renderOverlayMessage(message)}
+                    </div>
+                    ${renderOverlayMain(overlayMainHtml)}
+                    <div class="overlay-footer">
+                        ${cancel.label ? `<a class="btn btn-link overlay-cancel overlay-cancel-${id}">${cancel.label}</a>` : '' }
+                        <a ${confirmTarget + confirmHref} class="btn btn-primary confirm confirm-${id}">${confirm.label}</a>
+                    </div>
+                </div>
+            </div>
+        `);
+    $overlay.appendTo('body');
+    $overlay.find(".overlay-cancel").on("click", function () {
+        if (cancel.action) cancel.action();
+        closeOverlay($overlay, function() {
+            $overlay.remove();
+        });
+    });
+    $overlay.find(".confirm").on("click", function () {
+        if (confirm.action) confirm.action();
+        closeOverlay($overlay, function() {
+            $overlay.remove();
+        });
+    });
+    $overlay.show();
+    return $overlay
+}
+
+function i18n_terms(text, i18n_terms) {
+    var translated = i18n_terms[text];
+    if (translated) {
+        return translated
+    }
+    console.warn('community: no i18n value found for key ' + text);
+    return text;
+}
+
+
+function doAddTag(category, tagText, editable) {
+    tagText = _.escape(tagText);
+    var tagTextSanitized = sanitizeTheHtml(tagText),
+        name = category + "[]",
+        target = "." + category,
+        requirementClass = "requirement-" + tagToClass(tagTextSanitized);
+    if ($('.filter[data-filter_id="' + requirementClass + '"]').length) {
+        notification(tagTextSanitized + ' ' + global_i18n('already_exists_i18n') + '.');
+
+        return false;
+    }
+
+    $('<span class="filter' + (editable ? ' filter-editable' : '') + '" data-filter_id="' + requirementClass + '">\
+            <input type="hidden" name="' + name + '" value="' + tagText + '" class="form-input">\
+            <span class="filter-text">' + tagTextSanitized + '</span>\
+            ' + (editable ? '\
+                <div class="filter-edit">\
+                    <input type="text" value="' + tagText + '" class="form-control">\
+                    <a class="filter-edit-save">\
+                        <span class="icon-svg-check-circle"></span>\
+                    </a>\
+                </div>\
+            ' : '') + '\
+            <span class="remove-filter">&times;</span>\
+        </span>').appendTo(target);
+    return true;
+}
+
+function startEditingFilter($filter) {
+    var $input = $filter.find('.filter-edit input'),
+        filterValue = $input.val();
+
+    $filter.addClass('filter-editing unsaved-content');
+
+    $input.focus().val('').val(filterValue);
+}
+
+function saveEditedFilter($filter, oldValue, newValue, callback) {
+    var newValueSanitized = sanitizeHtml(newValue),
+        $formInput = $filter.find('.form-input'),
+        $filterText = $filter.find('.filter-text'),
+        requirementClass = "requirement-" + tagToClass(newValueSanitized);
+
+    if (newValue == oldValue) {
+        $filter.removeClass('filter-editing unsaved-content');
+
+        return false;
+    } else {
+        if ($('.filter[data-filter_id="' + requirementClass + '"]').length) {
+            notification(newValueSanitized + ' ' + global_i18n('already_exists_i18n') + '.');
+
+            return false;
+        }
+    }
+
+    $filter.removeClass('filter-editing unsaved-content');
+
+    $filter.attr('data-filter_id', requirementClass);
+    $formInput.val(newValue);
+    $filterText.html(newValueSanitized);
+
+    if (callback) {
+        callback('edit');
+    }
+}
+
+function tagToClass(t) {
+    result = t.replace(/[ !\"#$%&'\(\)\/\*\+,\.:;<=>\?\@\[\\\]\^`\{\|\}~]/g,
+        function (match, contents, offset, s) {
+            return "_" + match.charCodeAt(0).toString() + "_";
+        });
+    return result;
+}
+
+function check_file_extension(fileExtension, extensions) {
+    return _.includes(extensions, fileExtension)
+}
+
+function removePrefix(s, prefix) {
+    return (_.startsWith(s, prefix)) ? s.substr(prefix.length) : s
+}
+
+function formToJson($form, prefix) {
+    var data = {};
+    $form.serializeArray().map(function (item) {
+        var itemKey = removePrefix(item.name, prefix);
+        if (data[itemKey]) {
+            if (typeof (data[itemKey]) === "string") {
+                data[itemKey] = [data[itemKey]];
+            }
+            data[itemKey].push(item.value);
+        } else {
+            data[itemKey] = item.value;
+        }
+    });
+    return JSON.stringify(data)
+}
+
+function jsonToForm($form, data, prefix) {
+    $form.trigger("reset");
+    $.each(data, function (key, value) {
+        var $control = $form.find('[name=' + prefix + key + ']');
+        if ($control.is('select')) {
+            $('option', $control).each(function () {
+                if (this.value == value)
+                    this.selected = true;
+            });
+        } else if ($control.is('textarea')) {
+            $control.val(value);
+        } else {
+            switch ($control.attr("type")) {
+                case "text":
+                case "hidden":
+                    $control.val(value);
+                    break;
+                case "checkbox":
+                    $control.prop('checked', (value == '1'));
+                    break;
+            }
+        }
+    });
+}
+
+function initSubmitButtonValidation(control) {
+
+    var isAlpacaForm = !!control.domEl,
+        $container = control.domEl || control,
+        isHtmlForm = !!$container.closest('form').length,
+        $form = isHtmlForm ? $container.closest('form') : $container.closest('.ta-form');
+
+    if ($form.hasClass('submit-button-validation-initialized')) {
+        return;
+    } else {
+        $form.addClass('submit-button-validation-initialized');
+    }
+
+    function findFormElement(selector) {
+        return $form.find(selector).not($form.find('form ' + selector));
+    }
+    var $allSubmitButtons = findFormElement('[type="submit"]'),
+        $submitButton = $allSubmitButtons.filter(':not([data-ignore-button-validation="true"])');
+
+    function validateForm(event) {
+        event.preventDefault();
+        $allSubmitButtons.prop('disabled', true);
+
+        var $this = $(this),
+            $firstInvalidField,
+            requiredFieldsMissingValue = false,
+            invalidFields = false,
+            $allFileInputs = findFormElement('input:file'),
+            invalidFiles = [];
+
+        function mustValidate($el) {
+            // Checks if the field is used in the form and if it needs to be validated
+
+            function alpacaParentsAreVisible() {
+                var visible = true;
+
+                $el.parents('.alpaca-field').each(function (i, field) {
+                    var $field = $(field);
+
+                    if ($field.css('display') === 'none') {
+                        visible = false;
+                    }
+                });
+
+                return visible;
+            }
+
+            return (($el.css('display') !== 'none' || $el.attr('type') === 'file') && alpacaParentsAreVisible()
+                && !$el.hasClass('hidden-children') && !$el.hasClass('alpaca-top'));
+        }
+
+        function setFirstInvalidField(input) {
+            // Check if input is earlier in the DOM than the input set before
+            if (!$firstInvalidField || $firstInvalidField[0].compareDocumentPosition(input) & Node.DOCUMENT_POSITION_PRECEDING) {
+                $firstInvalidField = $(input);
+            }
+        }
+
+        function validateFile(input, lastFile) {
+            var file = input.files[0];
+            var reader = new FileReader();
+
+            reader.onerror = function () {
+                invalidFiles.push(input);
+                setFirstInvalidField(input);
+            };
+
+            reader.onloadend = function () {
+                if (lastFile) {
+                    continueValidation();
+                }
+            };
+
+            reader.readAsArrayBuffer(file.slice(0, 1));
+        }
+
+        if ($allFileInputs.length) {
+            var filesToValidate = [];
+
+            $allFileInputs.each(function (i, input) {
+                var $input = $(input);
+
+                if (mustValidate($input) && input.value) {
+                    filesToValidate.push(input);
+                }
+            });
+
+            if (filesToValidate.length) {
+                filesToValidate.forEach(function (input, i) {
+                    validateFile(input, i + 1 === filesToValidate.length);
+                });
+            } else {
+                continueValidation();
+            }
+        } else {
+            continueValidation();
+        }
+
+        function continueValidation() {
+            findFormElement('.must-consent input').each(function (i, input) {
+                var $input = $(input);
+
+                if (!$input.is(':checked') && mustValidate($input)) {
+                    requiredFieldsMissingValue = true;
+                    setFirstInvalidField(input);
+                    return false;
+                }
+            });
+
+            findFormElement('.ta-form-control-required').each(function (i, input) {
+                var $input = $(input);
+
+                if (!$input.val() && mustValidate($input)) {
+                    requiredFieldsMissingValue = true;
+                    setFirstInvalidField(input);
+                    return false;
+                }
+            });
+
+            findFormElement('.alpaca-required').each(function (i, container) {
+                var $container = $(container);
+
+                function validateFileInput() {
+                    var $input = $container.find('input[type="file"]'),
+                        $hiddenInputs = $container.find('input').not('[type="file"]');
+
+                    if ($input.val() || $hiddenInputs.length) {
+                        return true;
+                    } else {
+                        requiredFieldsMissingValue = true;
+                        setFirstInvalidField($input[0]);
+                        return false;
+                    }
+                }
+
+                if (mustValidate($container)) {
+                    var $inputs = $container.find('.alpaca-control'),
+                        missing = true;
+
+                    if ($container.hasClass('alpaca-field-file')) {
+                        return validateFileInput();
+                    }
+
+                    $inputs.each(function (i, input) {
+                        var isCheckbox = $(input).hasClass('checkbox') || $(input).hasClass('radio'),
+                            $input = isCheckbox ? $(input).find('input') : $(input);
+
+                        if ($input.val() && (!isCheckbox || $input.is(':checked'))) {
+                            missing = false;
+                            return false;
+                        }
+                    });
+
+                    if (missing) {
+                        requiredFieldsMissingValue = true;
+                        setFirstInvalidField($inputs[0]);
+                        return false;
+                    }
+                }
+            });
+
+            findFormElement('.alpaca-invalid').each(function (i, container) {
+                var $container = $(container),
+                    $inputs = $container.find('.alpaca-control');
+
+                if (mustValidate($container) && $container.find('.help-block.alpaca-message').length) {
+                    invalidFields = true;
+                    setFirstInvalidField($inputs[0]);
+                    return false;
+                }
+            });
+
+            if (!invalidFields && !invalidFiles.length && !requiredFieldsMissingValue) {
+                // Valid form
+                if (isHtmlForm) {
+                    $allSubmitButtons.prop('disabled', false);
+                    $this.off('click', validateForm).trigger('click');
+                    $allSubmitButtons.prop('disabled', true);
+                } else {
+                    $this.trigger('valid-click', {
+                        alwaysCb: function () {
+                            $allSubmitButtons.prop('disabled', false);
+                        }
+                    });
+                }
+            } else {
+                // Invalid form
+                if (isAlpacaForm) {
+                    findFormElement('.alpaca-top').each(function () {
+                        $(this).alpaca('get').refreshValidationState(true, function () {
+                            if (invalidFiles.length) {
+                                invalidFiles.forEach(function (input) {
+                                    var $input = $(input),
+                                        $alpacaField = $input.closest('.alpaca-field');
+
+                                    if ($alpacaField.hasClass('profile_image_widget_class')) {
+                                        notification(global_i18n('profile_image_has_changed') + ' ' + global_i18n('cloud_storage_issue'), 'none');
+                                    } else {
+                                        $alpacaField.append('<div class="help-block alpaca-message"><span class="icon-svg-alert-circle"></span>' + global_i18n('file_has_changed') + ' ' + global_i18n('cloud_storage_issue') + '</div>');
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+                $(document).trigger('focus-first-invalid-field', [$firstInvalidField]);
+                $firstInvalidField.trigger('focus');
+                window.scrollTo(0, $firstInvalidField.closest(':visible').offset().top - window.innerHeight / 2);
+                $allSubmitButtons.prop('disabled', false);
+            }
+        }
+    }
+
+    $submitButton.on('click', validateForm);
+    if (isHtmlForm && !$form.hasClass('prevent-enter-submit')) {
+        $form.on('keydown', 'input:not([type="submit"]), select', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                $allSubmitButtons.first().trigger('click');
+            }
+        });
+    }
+}
+
+function getFilePopupView(link) {
+    link = (link instanceof Object) ? link.view_link : link;
+    var pdf_view = "<iframe class='attachment_preview' src='" + link + "' width='100%' type='application/pdf'></iframe>",
+        zip_view = "",
+        image_view = "<img class='image_preview' src='" + link + "'>",
+        doc_view = "<iframe class='attachment_preview' data-src='https://docs.google.com/gview?url=" + link.replace("/att/", "/att-tl/") + "&embedded=true' width='100%'></iframe>",
+        normal_link = link.split("?t=")[0];
+    if (normal_link.toLowerCase().endsWith(".pdf")) {
+        return pdf_view
+    } else if (normal_link.toLowerCase().endsWith('.jpg') || normal_link.toLowerCase().endsWith('.jpeg') || normal_link.toLowerCase().endsWith('.png')) {
+        return image_view
+    } else if (normal_link.toLowerCase().endsWith('.zip')) {
+        return zip_view
+    } else {
+        return doc_view
+    }
+}
+
+function displayAlpacaForms(selector, cb, use_public_link) {
+    $(selector).each(function (index) {
+        var $formDiv = $(this).find("[data-schema]"),
+            formSchema = $.parseJSON($formDiv.data("schema"));
+        formSchema = JSON.stringify(sanitizeAlpacaDisplayData(JSON.parse(formSchema)));
+        if (use_public_link === true) {
+            formSchema = formSchema.replaceAll("/att/", "/att-tl/")
+        }
+        formSchema = $.parseJSON(formSchema);
+        var newForm = new alpacaForm();
+        newForm.init(null, $formDiv);
+        newForm.postRender = function () {
+            return function (control) {
+                newForm.defaultPostRender(control);
+                if (cb) {
+                    cb();
+                }
+            }
+        }
+        newForm.updateJsonConfiguration(formSchema);
+    })
+}
+
+function sanitizeAlpacaDisplayData(form_json) {
+    var isDisplayView = form_json.view && form_json.view.type === 'display',
+        props = form_json.schema.properties;
+    if (isDisplayView) {
+        Object.keys(form_json.data).forEach(function (field) {
+            if ((!props[field] || !props[field]["enum"])
+                && form_json.options.fields[field]
+                && form_json.options.fields[field].type !== 'ckeditor') {
+                form_json.data[field] = sanitizeHtml(form_json.data[field]);
+            }
+        });
+    }
+    return form_json
+}
+
+function newline_to_br(text) {
+    return text.replace(/\n/g, '<br />');
+}
+
+const setEditorData = (instance, data) => {
+    if (window.CKEDITOR && window.CKEDITOR.instances[instance]) {
+        window.CKEDITOR.instances[instance].setData(newline_to_br(`${data || ''}`));
+    } else {
+        console.error(`No such editor found: ${instance}`);
+    }
+};
+
+
+$(document).ready(function () {
+    $.ajaxSetup({ cache: false }); // IE tends to cache ajax-calls
+    $('body').on('focus', ".date_widget_class input", function () {
+        var $this = $(this),
+            disablePastDates = $this.data('disable-past-dates'),
+            setTodayDefaultDate = $this.data('set-today-default-date');
+
+        const datepickerOptions = {
+            dateFormat: "yy-mm-dd",
+            yearRange: "-100:+5",
+            changeMonth: true,
+            changeYear: true,
+            controlType: 'select',
+            oneLine: true,
+            onSelect: function () {
+                if ($this.val()) {
+                    $this.closest('.alpaca-field')
+                        .removeClass('has-error alpaca-invalid')
+                        .addClass('alpaca-field-valid')
+                        .find('.help-block.alpaca-message')
+                        .remove();
+                }
+
+                $this.change();
+            },
+            onChangeMonthYear: function (year, month, inst) {
+                var day = String(inst.currentDay),
+                    month = String(month),
+                    date = $this.val();
+
+                if (month.length === 1) month = '0' + month;
+                if (day.length === 1) day = '0' + day;
+
+                if ($.trim(date) != "") {
+                    var newDate = new Date(year + "-" + month + "-" + day);
+                    if (isNaN(newDate) || newDate.getMonth() !== Number(month) - 1) {
+                        newDate = new Date(year, month, 0);
+                    }
+                    $this.val($.datepicker.formatDate('yy-mm-dd', newDate));
+                }
+            }
+        }
+        if (disablePastDates) {
+            datepickerOptions.minDate = moment().format('YYYY-MM-DD');
+        }
+        if (setTodayDefaultDate && !$this.val()) {
+            datepickerOptions.defaultValue = moment().format('YYYY-MM-DD');
+            $this.val(moment().format('YYYY-MM-DD'))
+        }
+        $this.datepicker(datepickerOptions);
+    });
+
+    $('body').on('click', '.filter-editable .filter-text', function () {
+        var $filter = $(this).closest('.filter-editable');
+
+        startEditingFilter($filter);
+    });
+
+    $('body').on('keydown', '.filter-editable .filter-edit input', function (e) {
+        if (e.keyCode == 13) {
+            e.preventDefault();
+
+            $(this).closest('.filter-editable').find('.filter-edit-save').click();
+        }
+    });
+
+    displayAlpacaForms(".alpaca-display-form");
+
+    $('.ta-form').each(function (i, form) {
+        initSubmitButtonValidation($(form));
+    });
+});
+
+function ajaxRequest(method, url, data, customHeaders, customAjaxOptions) {
+    let ajaxOptions = {
+        url: url,
+        type: method,
+        data: data,
+    }
+    if (customAjaxOptions) {
+        ajaxOptions = Object.assign(ajaxOptions, customAjaxOptions)
+    }
+    if (customHeaders) {
+        if (customHeaders === 'v2') {
+            ajaxOptions.headers = {
+                "Content-Type": "application/json",
+                Accept: "application/vnd.talentadore.v2+json",
+            }
+        } else {
+            ajaxOptions.headers = customHeaders
+        }
+    }
+
+    return new Promise(function (resolve, reject)  {
+        $.ajax(ajaxOptions).done(function (response) {
+            resolve(response)
+        }).fail(function (error) {
+            const responseJSON = error.responseJSON || null
+            const resNotification = responseJSON && responseJSON.notification
+            if (!responseJSON) {
+                notification('Error Code: ' + error.status + ' ' + error.statusText);
+                return;
+            }
+            if (Array.isArray(resNotification)) {
+                resNotification.forEach(function (notificationText) {
+                    notification(notificationText);
+                })
+            }
+            else {
+                resNotification && notification(resNotification)
+            }
+            reject({ error: 'API error', data: responseJSON })
+        });
+    })
+}
+
+        ∏Ó  x∏ÓG   20241209150345-8lõÓ  d¢D   https://ats.talentadore.com/static/general-ui.js?v=4.6.0hm26-2964e10      nW  global_i18n_object['already_exists_i18n'] = $("#main_layout_attributes").data("already_exists_i18n");
+
+var sanitizeHtml = function (s) {
+    if (typeof s !== 'string') {
+        return s
+    }
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#x27;',
+    };
+    const reg = /[&<>"']/ig;
+    return s.replace(reg, function (match) { return map[match] });
+};
+
+function sanitizeList(list) {
+    return list.map(function (x) {
+        x = sanitizeHtml(x);
+        return x;
+    });
+}
+
+function renderOverlayMessage(message = '') {
+    if (message.length === 0) return '';
+    if (Array.isArray(message)) {
+        return "<h4>" + message[0] + "</h4><p>" + _.join(_.slice(message, 1), "</p><p>") + "</p>"
+    } else {
+        return "<p>" + message + "</p>"
+    }
+}
+
+function renderOverlayMain(overlayMainHtml) {
+    return overlayMainHtml ? `<div class="overlay-main">${overlayMainHtml}</div>` : '';
+}
+
+function show_confirmation_overlay(id, heading, message, cancel, confirm, fromShoppingCart, overlayMainHtml) {
+    var confirmTarget = (confirm.target) ? ('target="' + confirm.target + '" ') : '',
+        confirmHref = (confirm.href) ? ('href="' + confirm.href + '" ') : '',
+        $overlay = $(`
+            <div class="overlay-background overlay-close-no-confirmation" id="${id}">
+                <div class="overlay">
+                    <div class="overlay-header">
+                        ${(fromShoppingCart ? backToShoppingCartButton : '')}
+                        <div class="overlay-cancel-mark overlay-cancel"></div>
+                        <h3>${heading}</h3>
+                        ${renderOverlayMessage(message)}
+                    </div>
+                    ${renderOverlayMain(overlayMainHtml)}
+                    <div class="overlay-footer">
+                        ${cancel.label ? `<a class="btn btn-link overlay-cancel overlay-cancel-${id}">${cancel.label}</a>` : '' }
+                        <a ${confirmTarget + confirmHref} class="btn btn-primary confirm confirm-${id}">${confirm.label}</a>
+                    </div>
+                </div>
+            </div>
+        `);
+    $overlay.appendTo('body');
+    $overlay.find(".overlay-cancel").on("click", function () {
+        if (cancel.action) cancel.action();
+        closeOverlay($overlay, function() {
+            $overlay.remove();
+        });
+    });
+    $overlay.find(".confirm").on("click", function () {
+        if (confirm.action) confirm.action();
+        closeOverlay($overlay, function() {
+            $overlay.remove();
+        });
+    });
+    $overlay.show();
+    return $overlay
+}
+
+function i18n_terms(text, i18n_terms) {
+    var translated = i18n_terms[text];
+    if (translated) {
+        return translated
+    }
+    console.warn('community: no i18n value found for key ' + text);
+    return text;
+}
+
+
+function doAddTag(category, tagText, editable) {
+    tagText = _.escape(tagText);
+    var tagTextSanitized = sanitizeTheHtml(tagText),
+        name = category + "[]",
+        target = "." + category,
+        requirementClass = "requirement-" + tagToClass(tagTextSanitized);
+    if ($('.filter[data-filter_id="' + requirementClass + '"]').length) {
+        notification(tagTextSanitized + ' ' + global_i18n('already_exists_i18n') + '.');
+
+        return false;
+    }
+
+    $('<span class="filter' + (editable ? ' filter-editable' : '') + '" data-filter_id="' + requirementClass + '">\
+            <input type="hidden" name="' + name + '" value="' + tagText + '" class="form-input">\
+            <span class="filter-text">' + tagTextSanitized + '</span>\
+            ' + (editable ? '\
+                <div class="filter-edit">\
+                    <input type="text" value="' + tagText + '" class="form-control">\
+                    <a class="filter-edit-save">\
+                        <span class="icon-svg-check-circle"></span>\
+                    </a>\
+                </div>\
+            ' : '') + '\
+            <span class="remove-filter">&times;</span>\
+        </span>').appendTo(target);
+    return true;
+}
+
+function startEditingFilter($filter) {
+    var $input = $filter.find('.filter-edit input'),
+        filterValue = $input.val();
+
+    $filter.addClass('filter-editing unsaved-content');
+
+    $input.focus().val('').val(filterValue);
+}
+
+function saveEditedFilter($filter, oldValue, newValue, callback) {
+    var newValueSanitized = sanitizeHtml(newValue),
+        $formInput = $filter.find('.form-input'),
+        $filterText = $filter.find('.filter-text'),
+        requirementClass = "requirement-" + tagToClass(newValueSanitized);
+
+    if (newValue == oldValue) {
+        $filter.removeClass('filter-editing unsaved-content');
+
+        return false;
+    } else {
+        if ($('.filter[data-filter_id="' + requirementClass + '"]').length) {
+            notification(newValueSanitized + ' ' + global_i18n('already_exists_i18n') + '.');
+
+            return false;
+        }
+    }
+
+    $filter.removeClass('filter-editing unsaved-content');
+
+    $filter.attr('data-filter_id', requirementClass);
+    $formInput.val(newValue);
+    $filterText.html(newValueSanitized);
+
+    if (callback) {
+        callback('edit');
+    }
+}
+
+function tagToClass(t) {
+    result = t.replace(/[ !\"#$%&'\(\)\/\*\+,\.:;<=>\?\@\[\\\]\^`\{\|\}~]/g,
+        function (match, contents, offset, s) {
+            return "_" + match.charCodeAt(0).toString() + "_";
+        });
+    return result;
+}
+
+function check_file_extension(fileExtension, extensions) {
+    return _.includes(extensions, fileExtension)
+}
+
+function removePrefix(s, prefix) {
+    return (_.startsWith(s, prefix)) ? s.substr(prefix.length) : s
+}
+
+function formToJson($form, prefix) {
+    var data = {};
+    $form.serializeArray().map(function (item) {
+        var itemKey = removePrefix(item.name, prefix);
+        if (data[itemKey]) {
+            if (typeof (data[itemKey]) === "string") {
+                data[itemKey] = [data[itemKey]];
+            }
+            data[itemKey].push(item.value);
+        } else {
+            data[itemKey] = item.value;
+        }
+    });
+    return JSON.stringify(data)
+}
+
+function jsonToForm($form, data, prefix) {
+    $form.trigger("reset");
+    $.each(data, function (key, value) {
+        var $control = $form.find('[name=' + prefix + key + ']');
+        if ($control.is('select')) {
+            $('option', $control).each(function () {
+                if (this.value == value)
+                    this.selected = true;
+            });
+        } else if ($control.is('textarea')) {
+            $control.val(value);
+        } else {
+            switch ($control.attr("type")) {
+                case "text":
+                case "hidden":
+                    $control.val(value);
+                    break;
+                case "checkbox":
+                    $control.prop('checked', (value == '1'));
+                    break;
+            }
+        }
+    });
+}
+
+function initSubmitButtonValidation(control) {
+
+    var isAlpacaForm = !!control.domEl,
+        $container = control.domEl || control,
+        isHtmlForm = !!$container.closest('form').length,
+        $form = isHtmlForm ? $container.closest('form') : $container.closest('.ta-form');
+
+    if ($form.hasClass('submit-button-validation-initialized')) {
+        return;
+    } else {
+        $form.addClass('submit-button-validation-initialized');
+    }
+
+    function findFormElement(selector) {
+        return $form.find(selector).not($form.find('form ' + selector));
+    }
+    var $allSubmitButtons = findFormElement('[type="submit"]'),
+        $submitButton = $allSubmitButtons.filter(':not([data-ignore-button-validation="true"])');
+
+    function validateForm(event) {
+        event.preventDefault();
+        $allSubmitButtons.prop('disabled', true);
+
+        var $this = $(this),
+            $firstInvalidField,
+            requiredFieldsMissingValue = false,
+            invalidFields = false,
+            $allFileInputs = findFormElement('input:file'),
+            invalidFiles = [];
+
+        function mustValidate($el) {
+            // Checks if the field is used in the form and if it needs to be validated
+
+            function alpacaParentsAreVisible() {
+                var visible = true;
+
+                $el.parents('.alpaca-field').each(function (i, field) {
+                    var $field = $(field);
+
+                    if ($field.css('display') === 'none') {
+                        visible = false;
+                    }
+                });
+
+                return visible;
+            }
+
+            return (($el.css('display') !== 'none' || $el.attr('type') === 'file') && alpacaParentsAreVisible()
+                && !$el.hasClass('hidden-children') && !$el.hasClass('alpaca-top'));
+        }
+
+        function setFirstInvalidField(input) {
+            // Check if input is earlier in the DOM than the input set before
+            if (!$firstInvalidField || $firstInvalidField[0].compareDocumentPosition(input) & Node.DOCUMENT_POSITION_PRECEDING) {
+                $firstInvalidField = $(input);
+            }
+        }
+
+        function validateFile(input, lastFile) {
+            var file = input.files[0];
+            var reader = new FileReader();
+
+            reader.onerror = function () {
+                invalidFiles.push(input);
+                setFirstInvalidField(input);
+            };
+
+            reader.onloadend = function () {
+                if (lastFile) {
+                    continueValidation();
+                }
+            };
+
+            reader.readAsArrayBuffer(file.slice(0, 1));
+        }
+
+        if ($allFileInputs.length) {
+            var filesToValidate = [];
+
+            $allFileInputs.each(function (i, input) {
+                var $input = $(input);
+
+                if (mustValidate($input) && input.value) {
+                    filesToValidate.push(input);
+                }
+            });
+
+            if (filesToValidate.length) {
+                filesToValidate.forEach(function (input, i) {
+                    validateFile(input, i + 1 === filesToValidate.length);
+                });
+            } else {
+                continueValidation();
+            }
+        } else {
+            continueValidation();
+        }
+
+        function continueValidation() {
+            findFormElement('.must-consent input').each(function (i, input) {
+                var $input = $(input);
+
+                if (!$input.is(':checked') && mustValidate($input)) {
+                    requiredFieldsMissingValue = true;
+                    setFirstInvalidField(input);
+                    return false;
+                }
+            });
+
+            findFormElement('.ta-form-control-required').each(function (i, input) {
+                var $input = $(input);
+
+                if (!$input.val() && mustValidate($input)) {
+                    requiredFieldsMissingValue = true;
+                    setFirstInvalidField(input);
+                    return false;
+                }
+            });
+
+            findFormElement('.alpaca-required').each(function (i, container) {
+                var $container = $(container);
+
+                function validateFileInput() {
+                    var $input = $container.find('input[type="file"]'),
+                        $hiddenInputs = $container.find('input').not('[type="file"]');
+
+                    if ($input.val() || $hiddenInputs.length) {
+                        return true;
+                    } else {
+                        requiredFieldsMissingValue = true;
+                        setFirstInvalidField($input[0]);
+                        return false;
+                    }
+                }
+
+                if (mustValidate($container)) {
+                    var $inputs = $container.find('.alpaca-control'),
+                        missing = true;
+
+                    if ($container.hasClass('alpaca-field-file')) {
+                        return validateFileInput();
+                    }
+
+                    $inputs.each(function (i, input) {
+                        var isCheckbox = $(input).hasClass('checkbox') || $(input).hasClass('radio'),
+                            $input = isCheckbox ? $(input).find('input') : $(input);
+
+                        if ($input.val() && (!isCheckbox || $input.is(':checked'))) {
+                            missing = false;
+                            return false;
+                        }
+                    });
+
+                    if (missing) {
+                        requiredFieldsMissingValue = true;
+                        setFirstInvalidField($inputs[0]);
+                        return false;
+                    }
+                }
+            });
+
+            findFormElement('.alpaca-invalid').each(function (i, container) {
+                var $container = $(container),
+                    $inputs = $container.find('.alpaca-control');
+
+                if (mustValidate($container) && $container.find('.help-block.alpaca-message').length) {
+                    invalidFields = true;
+                    setFirstInvalidField($inputs[0]);
+                    return false;
+                }
+            });
+
+            if (!invalidFields && !invalidFiles.length && !requiredFieldsMissingValue) {
+                // Valid form
+                if (isHtmlForm) {
+                    $allSubmitButtons.prop('disabled', false);
+                    $this.off('click', validateForm).trigger('click');
+                    $allSubmitButtons.prop('disabled', true);
+                } else {
+                    $this.trigger('valid-click', {
+                        alwaysCb: function () {
+                            $allSubmitButtons.prop('disabled', false);
+                        }
+                    });
+                }
+            } else {
+                // Invalid form
+                if (isAlpacaForm) {
+                    findFormElement('.alpaca-top').each(function () {
+                        $(this).alpaca('get').refreshValidationState(true, function () {
+                            if (invalidFiles.length) {
+                                invalidFiles.forEach(function (input) {
+                                    var $input = $(input),
+                                        $alpacaField = $input.closest('.alpaca-field');
+
+                                    if ($alpacaField.hasClass('profile_image_widget_class')) {
+                                        notification(global_i18n('profile_image_has_changed') + ' ' + global_i18n('cloud_storage_issue'), 'none');
+                                    } else {
+                                        $alpacaField.append('<div class="help-block alpaca-message"><span class="icon-svg-alert-circle"></span>' + global_i18n('file_has_changed') + ' ' + global_i18n('cloud_storage_issue') + '</div>');
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+                $(document).trigger('focus-first-invalid-field', [$firstInvalidField]);
+                $firstInvalidField.trigger('focus');
+                window.scrollTo(0, $firstInvalidField.closest(':visible').offset().top - window.innerHeight / 2);
+                $allSubmitButtons.prop('disabled', false);
+            }
+        }
+    }
+
+    $submitButton.on('click', validateForm);
+    if (isHtmlForm && !$form.hasClass('prevent-enter-submit')) {
+        $form.on('keydown', 'input:not([type="submit"]), select', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                $allSubmitButtons.first().trigger('click');
+            }
+        });
+    }
+}
+
+function getFilePopupView(link) {
+    link = (link instanceof Object) ? link.view_link : link;
+    var pdf_view = "<iframe class='attachment_preview' src='" + link + "' width='100%' type='application/pdf'></iframe>",
+        zip_view = "",
+        image_view = "<img class='image_preview' src='" + link + "'>",
+        doc_view = "<iframe class='attachment_preview' data-src='https://docs.google.com/gview?url=" + link.replace("/att/", "/att-tl/") + "&embedded=true' width='100%'></iframe>",
+        normal_link = link.split("?t=")[0];
+    if (normal_link.toLowerCase().endsWith(".pdf")) {
+        return pdf_view
+    } else if (normal_link.toLowerCase().endsWith('.jpg') || normal_link.toLowerCase().endsWith('.jpeg') || normal_link.toLowerCase().endsWith('.png')) {
+        return image_view
+    } else if (normal_link.toLowerCase().endsWith('.zip')) {
+        return zip_view
+    } else {
+        return doc_view
+    }
+}
+
+function displayAlpacaForms(selector, cb, use_public_link) {
+    $(selector).each(function (index) {
+        var $formDiv = $(this).find("[data-schema]"),
+            formSchema = $.parseJSON($formDiv.data("schema"));
+        formSchema = JSON.stringify(sanitizeAlpacaDisplayData(JSON.parse(formSchema)));
+        if (use_public_link === true) {
+            formSchema = formSchema.replaceAll("/att/", "/att-tl/")
+        }
+        formSchema = $.parseJSON(formSchema);
+        var newForm = new alpacaForm();
+        newForm.init(null, $formDiv);
+        newForm.postRender = function () {
+            return function (control) {
+                newForm.defaultPostRender(control);
+                if (cb) {
+                    cb();
+                }
+            }
+        }
+        newForm.updateJsonConfiguration(formSchema);
+    })
+}
+
+function sanitizeAlpacaDisplayData(form_json) {
+    var isDisplayView = form_json.view && form_json.view.type === 'display',
+        props = form_json.schema.properties;
+    if (isDisplayView) {
+        Object.keys(form_json.data).forEach(function (field) {
+            if ((!props[field] || !props[field]["enum"])
+                && form_json.options.fields[field]
+                && form_json.options.fields[field].type !== 'ckeditor') {
+                form_json.data[field] = sanitizeHtml(form_json.data[field]);
+            }
+        });
+    }
+    return form_json
+}
+
+function newline_to_br(text) {
+    return text.replace(/\n/g, '<br />');
+}
+
+const setEditorData = (instance, data) => {
+    if (window.CKEDITOR && window.CKEDITOR.instances[instance]) {
+        window.CKEDITOR.instances[instance].setData(newline_to_br(`${data || ''}`));
+    } else {
+        console.error(`No such editor found: ${instance}`);
+    }
+};
+
+
+$(document).ready(function () {
+    $.ajaxSetup({ cache: false }); // IE tends to cache ajax-calls
+    $('body').on('focus', ".date_widget_class input", function () {
+        var $this = $(this),
+            disablePastDates = $this.data('disable-past-dates'),
+            setTodayDefaultDate = $this.data('set-today-default-date');
+
+        const datepickerOptions = {
+            dateFormat: "yy-mm-dd",
+            yearRange: "-100:+5",
+            changeMonth: true,
+            changeYear: true,
+            controlType: 'select',
+            oneLine: true,
+            onSelect: function () {
+                if ($this.val()) {
+                    $this.closest('.alpaca-field')
+                        .removeClass('has-error alpaca-invalid')
+                        .addClass('alpaca-field-valid')
+                        .find('.help-block.alpaca-message')
+                        .remove();
+                }
+
+                $this.change();
+            },
+            onChangeMonthYear: function (year, month, inst) {
+                var day = String(inst.currentDay),
+                    month = String(month),
+                    date = $this.val();
+
+                if (month.length === 1) month = '0' + month;
+                if (day.length === 1) day = '0' + day;
+
+                if ($.trim(date) != "") {
+                    var newDate = new Date(year + "-" + month + "-" + day);
+                    if (isNaN(newDate) || newDate.getMonth() !== Number(month) - 1) {
+                        newDate = new Date(year, month, 0);
+                    }
+                    $this.val($.datepicker.formatDate('yy-mm-dd', newDate));
+                }
+            }
+        }
+        if (disablePastDates) {
+            datepickerOptions.minDate = moment().format('YYYY-MM-DD');
+        }
+        if (setTodayDefaultDate && !$this.val()) {
+            datepickerOptions.defaultValue = moment().format('YYYY-MM-DD');
+            $this.val(moment().format('YYYY-MM-DD'))
+        }
+        $this.datepicker(datepickerOptions);
+    });
+
+    $('body').on('click', '.filter-editable .filter-text', function () {
+        var $filter = $(this).closest('.filter-editable');
+
+        startEditingFilter($filter);
+    });
+
+    $('body').on('keydown', '.filter-editable .filter-edit input', function (e) {
+        if (e.keyCode == 13) {
+            e.preventDefault();
+
+            $(this).closest('.filter-editable').find('.filter-edit-save').click();
+        }
+    });
+
+    displayAlpacaForms(".alpaca-display-form");
+
+    $('.ta-form').each(function (i, form) {
+        initSubmitButtonValidation($(form));
+    });
+});
+
+function ajaxRequest(method, url, data, customHeaders, customAjaxOptions) {
+    let ajaxOptions = {
+        url: url,
+        type: method,
+        data: data,
+    }
+    if (customAjaxOptions) {
+        ajaxOptions = Object.assign(ajaxOptions, customAjaxOptions)
+    }
+    if (customHeaders) {
+        if (customHeaders === 'v2') {
+            ajaxOptions.headers = {
+                "Content-Type": "application/json",
+                Accept: "application/vnd.talentadore.v2+json",
+            }
+        } else {
+            ajaxOptions.headers = customHeaders
+        }
+    }
+
+    return new Promise(function (resolve, reject)  {
+        $.ajax(ajaxOptions).done(function (response) {
+            resolve(response)
+        }).fail(function (error) {
+            const responseJSON = error.responseJSON || null
+            const resNotification = responseJSON && responseJSON.notification
+            if (!responseJSON) {
+                notification('Error Code: ' + error.status + ' ' + error.statusText);
+                return;
+            }
+            if (Array.isArray(resNotification)) {
+                resNotification.forEach(function (notificationText) {
+                    notification(notificationText);
+                })
+            }
+            else {
+                resNotification && notification(resNotification)
+            }
+            reject({ error: 'API error', data: responseJSON })
+        });
+    })
+}
+
+”ò¿Ÿâ  Ä         1$â      global_i18n_object     {pMè      already_exists_i18n    ªæûÇ      #main_layout_attributes    6ó(Å      data   éµªF      sanitizeHtml   9Ã      map    ˛À¿Ç      &amp;      a≈ @      &lt;   ª„“      &gt;	   ~Ü¸ﬂ      &quot;
+     pHF      &#x27;     Ü}≈      reg    ÷kZ      [&<>"']    àyw˚      sanitizeList   „Ç»≈      list   °°      renderOverlayMessage   ¢]¡Ï      isArray    Ü‚Âm      <h4>   ≥X/)      </h4><p>   ÿÖ Ã      slice      $ÑtŸ      </p><p>    ˇ!      </p>   ·àí∆      <p>    àHA      renderOverlayMain      y™OÅ      overlayMainHtml    sia+      <div class="overlay-main">     ©è^      </div>     –î.Ù      show_confirmation_overlay      c˝)/      heading    :}»@      confirm    ø‚º      fromShoppingCart   &i      confirmTarget       o9 .      target="!   `Á'      " "     ±d=¯      confirmHref#    ª©`X      href$   ¬◊±      href="%     J‘î]      $overlay&   V⁄àÛO      
+            <div class="overlay-background overlay-close-no-confirmation" id="'    Kﬂ˘¨r      ">
+                <div class="overlay">
+                    <div class="overlay-header">
+                        (     ﬁ|…p      backToShoppingCartButton)   ,'x‡l      
+                        <div class="overlay-cancel-mark overlay-cancel"></div>
+                        <h3>*   }",X      </h3>
+                        +     v∏>Ï0      
+                    </div>
+                    ,   *¬ö,J      
+                    <div class="overlay-footer">
+                        -     ÁmÑ65      <a class="btn btn-link overlay-cancel overlay-cancel-.      +®¢      ">/     ÓÜƒé      </a>0   ﬂ	èh      
+                        <a 1   {˚-
+(       class="btn btn-primary confirm confirm-2   ˛{UR      </a>
+                    </div>
+                </div>
+            </div>
+        3     †Á„V      appendTo4   òh;      body5   ’ﬂ      .overlay-cancel6    ü™‚X      click7      	‡Ï      action8     ∑Íü      closeOverlay9   *N∑∆      remove:     CH>|      .confirm;   HáíK      show<   Yè∑^
+      i18n_terms=     à3¿µ      text>   2¸øù
+      translated?     ˛Q1      console@    ëMÜ      warnA   ‡†U¥'      community: no i18n value found for key B    ôÌ`=      doAddTagC   ¿πûº      categoryD   ‚©dË      tagTextE    ¥Ã˛ò      editableF   âõ¥€      tagTextSanitizedG   øˆ      sanitizeTheHtmlH    Íkü’      []I     %IJÜ      requirementClassJ   «øÀû      requirement-K   ,$∞^
+      tagToClassL     zÌÔõ      .filter[data-filter_id="M   ı£Ø      "]N     ¶#D      notificationO   ﬁÁ˛J      global_i18nP    Ttc£      <span class="filterQ    gﬁÖ       filter-editableR   Mg!      " data-filter_id="S     >£íF)      ">            <input type="hidden" name="T      ïumG	      " value="U      âw|&;      " class="form-input">            <span class="filter-text">V    O6ZN      </span>            W    –ï{W                      <div class="filter-edit">                    <input type="text" value="X    ìÅƒ      " class="form-control">                    <a class="filter-edit-save">                        <span class="icon-svg-check-circle"></span>                    </a>                </div>            Y   5†óiE                  <span class="remove-filter">&times;</span>        </span>Z       'Ü      startEditingFilter[     Ÿ\Ωä      $filter\    x÷Ö      $input]     ›ùtE      .filter-edit input^     {·a      filterValue_    &⁄õ      val`    Bå|      addClassa   !k≤      filter-editing unsaved-contentb     KÃÌ      focusc      7e√ë      saveEditedFilterd   z‚Åà      oldValuee   z3•      newValuef   Ë€˘      callbackg   ≥;ÿ      newValueSanitizedh      °≥Ì¡
+      $formInputi     e%      .form-inputj    $e€<      $filterTextk    !¢w0      .filter-textl   ˆ+      removeClassm    A¢Ωê      attrn   ñê¿      data-filter_ido     ‘„X      htmlp   \Ôùï      editq   âÈ~_1      [ !\"#$%&'\(\)\/\*\+,\.:;<=>\?\@\[\\\]\^`\{\|\}~]r      π—      contentss   (=S:
+      charCodeAtt     ú˙#      check_file_extensionu   6      fileExtensionv      ﬂWí
+      extensionsw     r„      removePrefixx   ›2†      prefixy     ›JX?
+      startsWithz     6ôfÿ      substr{     ‚ë<µ
+      formToJson|     l…≠      $form}      ıà˜0      serializeArray~     ˝ÑÃ∫      item   MÄLp      itemKeyÄ    Ñu2      pushÅ   nßÎ	      stringifyÇ      ãDÆ
+      jsonToFormÉ     ˘!p¬      triggerÑ    ÛWÄπ      resetÖ      B¸ø;      keyÜ    ›"ôg      $controlá   ⁄5˛      [name=à     1<Î      selectâ     ⁄|`õ      optionä     ≈.»œ      selectedã   ÷ŸÓ      textareaå   Ñ€ËW      hiddenç     ÿy*      checkboxé   “P…ù      propè   »:0ó      checkedê    ⁄ÓÁz      initSubmitButtonValidationë     ‘Ω      controlí    ˛›#ö      isAlpacaFormì   ﬂÖ÷      domElî      ÔiÖ
+      $containerï     ∂ítÃ
+      isHtmlFormñ     /ﬂ‰ï      closestó    *g“€      formò   -/N      .ta-formô   7ÑÉz      hasClassö   ^håÜ$      submit-button-validation-initializedõ   V¨kg      findFormElementú     _l$      selectorù   qûÅÄ      notû    „¯uÒ      form ü      b2      $allSubmitButtons†      ‚^w      [type="submit"]°    °Óôë      $submitButton¢      >	≈      filter£     ¨,T¨,      :not([data-ignore-button-validation="true"])§   ûÍ>      validateForm•   II∑P      event¶      B9∫¿      preventDefaultß     ûzÉw      disabled®    Kı±      $this©      ˜GÛ      $firstInvalidField™     Ωp£      requiredFieldsMissingValue´     i@7À      invalidFields¨      Ú~{      $allFileInputs≠     5Ì
+      input:fileÆ     ˚”˜      invalidFilesØ   ÉHJ      mustValidate∞   £Á”¢      $el±    E\vŸ      alpacaParentsAreVisible≤    ?Iqõ      visible≥    Õv=      parents¥    ËË      .alpaca-fieldµ      †“ñ!      field∂       ˛      $field∑     >ü      css∏    e}ü      displayπ    ,Ω      none∫   …«=      fileª   ¸≤       hidden-childrenº    ñs∑*
+      alpaca-topΩ     ‹.†F      setFirstInvalidFieldæ   äƒ      compareDocumentPositionø    â¢°      Node¿   ï˘x      DOCUMENT_POSITION_PRECEDING¡    Á(˛@      validateFile¬   §…ÙÎ      lastFile√   ¥·Pπ      filesƒ      †R
+d      reader≈     DvA
+      FileReader∆     ¢Î˜s      onerror«    hÃSÒ	      onloadend»      9õóâ      continueValidation…     X›D†      readAsArrayBuffer       3ÖàÄ      filesToValidateÀ    `ôd≥      .must-consent inputÃ    ÄÈz      :checkedÕ   |ÇÄ'      .ta-form-control-requiredŒ      „NI      .alpaca-requiredœ   -‚
+Ë	      container–      3}6$      validateFileInput—      CÃ/      input[type="file"]“     Ü      $hiddenInputs”      ‡‘       [type="file"]‘      ã©Jç      $inputs’    	äçß      .alpaca-control÷    ÜÍ       missing◊    G¢¨Ô      alpaca-field-fileÿ      ñﬁ√
+
+      isCheckboxŸ     6zgÚ      radio⁄      ö€îy      .alpaca-invalid€    Ê∞ñΩ      .help-block.alpaca-message‹     ˙¯Öﬂ      off›    ∏§*ü      valid-clickﬁ    i√k˜      alwaysCbﬂ   «ifà      .alpaca-top‡    
+xäg      alpaca·     Bg—∏      refreshValidationState‚     å:      $alpacaField„   H8X      profile_image_widget_class‰     …ÒO      profile_image_has_changedÂ      {v}Ö      cloud_storage_issueÊ    ‹B-      appendÁ     Äô43R      <div class="help-block alpaca-message"><span class="icon-svg-alert-circle"></span>Ë     ‘úÇÿ      file_has_changedÈ   ∏OÄ      documentÍ   sî^ù      focus-first-invalid-fieldÎ      ¯2áâ      windowÏ     Vú◊ÿ      scrollToÌ   SZK#      :visibleÓ   $√Á      topÔ    0Uó      innerHeight    áÆ      prevent-enter-submitÒ   ù∫”      keydownÚ    •ù"      input:not([type="submit"]), selectÛ     Ï~o^      EnterÙ      `~ﬂ      firstı      q5?Â      getFilePopupViewˆ   ¸IÎ’      link˜   πˇTÑ	      view_link¯      ¸€˜      pdf_view˘   óÔD√(      <iframe class='attachment_preview' src='˙   ˙‘˝9/      ' width='100%' type='application/pdf'></iframe>˚    Fa‹      zip_view¸   _◊e?
+      image_view˝     ´ù$0       <img class='image_preview' src='˛   µìë      '>ˇ     "iÔÊ      doc_view   ¢]∏˘O      <iframe class='attachment_preview' data-src='https://docs.google.com/gview?url=    Lå‰      /att/     ^_SÁ      /att-tl/  Ç`5&      &embedded=true' width='100%'></iframe>    i/      normal_link   ù‡;      ?t=   RâDo      toLowerCase   lÁaé      endsWith  )Õ∂}      .pdf	  A(f      .jpg
+  Râ0Ï      .jpeg     j’Ó'      .png  Dﬁ¯†      .zip  b∆’ÿ      displayAlpacaForms    `äÂ∑      use_public_link   ›Ω!A      $formDiv  gﬂCí      [data-schema]     > õ
+      formSchema    Fbù6	      parseJSON     x3∏—      schema    †S»°      sanitizeAlpacaDisplayData     5ıá∆      parse     é
+      replaceAll    √€ﬁº      newForm   y˚ÔW
+      alpacaForm    íu`      init  ƒˆ=÷
+      postRender    ¶Ï‰«      defaultPostRender     ú^˜Ü      updateJsonConfiguration   ã5µ	      form_json     *s'      isDisplayView     4’h      view    ¶      props!     ø€
+      properties"     :yã      options#   >	]f      ckeditor$  VîÁå      newline_to_br%           \n&    |N‰7      <br />'    
+%ÿ      setEditorData(     ‰§ÎÙ      instance)  ë(e      CKEDITOR*  El\‰	      instances+     ún◊´      setData,   ˛tuW      error-     äB‚      No such editor found: .    ¢Ñ
+      ready/     }{dÖ	      ajaxSetup0     
+É€,      cache1     &Õ^¡      .date_widget_class input2  tÍ¬Ö      disablePastDates3  ”«6ø      disable-past-dates4    ~^µì      setTodayDefaultDate5   ®‡£'      set-today-default-date6    ÷é†!      datepickerOptions7     D~1ü
+      dateFormat8    ®;K‰      yy-mm-dd9  ≈n{y	      yearRange:     8ˆ‡      -100:+5;   	6Yﬁ      changeMonth<   ¿Râ
+      changeYear=    Vgò$      controlType>   ·¡ƒE      oneLine?   hcºa      onSelect@  ıØ      has-error alpaca-invalidA  ?å}      alpaca-field-validB    Á˛¡      changeC    B⁄l∏      onChangeMonthYearD     qÆ˚9      instE  ÎÖôJ
+      currentDayF    óñôb      trimG  ∆‰≤{      newDateH   "ü      getMonthI  Jñ˛L
+      datepickerJ    à‘m}
+      formatDateK    ©ùvÛ      minDateL   lq˜;      momentM    õ®¢
+      YYYY-MM-DDN    ‹â      defaultValueO  .9“¨      .filter-editable .filter-textP     »4˜      .filter-editableQ  i8ùQ#      .filter-editable .filter-edit inputR   ≠5      keyCodeS   K∫Ô      .filter-edit-saveT     òî≈      .alpaca-display-formU  léπD      ajaxRequestV   Ωpwm      methodW    –“àõ      customHeadersX     _–X¿      customAjaxOptionsY     e…’Æ      ajaxOptionsZ   ïn.      assign[    ¨yòü      headers\   ﬁ‡l      Content-Type]  2Sb3      application/json^  fMW      Accept_    #L%#      application/vnd.talentadore.v2+json`   æd»ê      ajaxa  âOÁù      responseb  ‡˙£Œ      failc  ÷§Ò.      responseJSONd  ¶wLÛ      resNotificatione   Eg      Error Code: f  ∂ﬂ˘®
+      statusTextg    å=V      notificationTexth  ‰·‚«	      API errori     ó!/Õ      sanitizeHtml/<j    iíB      sanitizeList/<k    ◊F€Ú      show_confirmation_overlay/<l   ◊=g      show_confirmation_overlay/</<m     åáæì      tagToClass/result<n     û‡t      formToJson/<o  §√ñˆ      jsonToForm/<p  +‚Ûf      jsonToForm/</<u    2b·N      initSubmitButtonValidation/validateForm/mustValidate/alpacaParentsAreVisible/<x    •È´KC      initSubmitButtonValidation/validateForm/validateFile/reader.onerrory   ‹XÉE      initSubmitButtonValidation/validateForm/validateFile/reader.onloadendz     Ñ")      initSubmitButtonValidation/validateForm/<|     ÏîGô<      initSubmitButtonValidation/validateForm/continueValidation/<~  ±y¬>      initSubmitButtonValidation/validateForm/continueValidation/</<Ä    ≥‡ßú@      initSubmitButtonValidation/validateForm/continueValidation/</</<Å  >ãÔ      initSubmitButtonValidation/<Ç  ± [é      displayAlpacaForms/<É  µùE'      displayAlpacaForms/</newForm.postRenderÑ   _C})      displayAlpacaForms/</newForm.postRender/<Ö     •0Â∂      sanitizeAlpacaDisplayData/<Ü   µ¡Eï      ajaxRequest/<á     HHjj      ajaxRequest/</<à   F}≥¥      ajaxRequest/</</<     F   ä  J   F             Ô%,â                                                                                                                                        	                 
+                                                                                                                                                                                                                                                                                                                                                                                                          !                 "                 %      !           &      !           '      !          (      $           )      $           *      !           +      !           ,      !           -      )           .      *           /                 #                 $                 0                  1                 2      0          3      1           4      2           5                 6      4           7                  8                  A      7                8          B      9           C      9           D      ;                 <           E                        >                ?                             9                  :      B          ;      C                D           <      D           =      B           >      B           ?      B           @      ≥Oåc             ê  ê  ê  ê<  êB  êZ  êc  êK  êt  êw  ê{  êÇ  êê  êı  ê ê ê$ êU ê'                             x             T                 
+            ç   T  9  `  P      "  %  P                                                                            =  <  >              C  D  E  F  r    I              [  \  ^              [  d  e  f  g  h  j  I               t                  r  õ  s               u  v               s  x               |  x  P  P            ~                 |  P  x  P            Ö  B `Ü                Ü   	            ë  í  Pî  ï  P|  Põ  Pü  P°  §  P             ú              •  ®  P©  P™  P´  P¨  Æ  PØ  PΩ  P¡  P   P»  PÜ               ∞  P±                 ≤  P            i  µ  ∂                              `¬  P∫  ƒ                                                              i    \              i    \              i  œ  î  P–  ‘  ÷  P              \  “              i    ÿ  \              i  œ  î  ‘                                Ü                                 \  ‚              i    \                 i               e              ˆ  ¯  ˚  ¸  ˇ                ú  ` P            ˛      PÜ                                ë               P   P             µ               =               V <    W X           Y P             Œ `« `             a              ,           c d              g              s              P                               (                                 ®  P2 4 Ü             6                             ]  k  D ]   X   G               [  Ü               e  Ü                i  ó  Ø¬0∞     q     %    IÙ$KEÆ˙ö                ﬁ          <  "       
+   \ ^    
+    ,          &  <  >  "  '          0    (     7 9 ; < = > ? C á&’™ç!´!F   ∏   Üº∏   g                         ⁄   ª   ª       s ·J   ‰   s L   ﬂ∑   m       ﬂm   ≤   ﬂª    ª   s ·J   ‰m   w ﬂ•eê ,PPIeKÄ Î`;Ä Ù`ˇˇˇˇP
+ˇˇˇ˙P4Ä hPÄ  è≠Õ∏ÿ   á                 
+      –   ∞±   ﬂº  Éö   ó   º  §—•ó   9      <      <      <   	   <
+      <   ≥   ﬂl   ±   ﬂº  ·J   ‰æ   m   s §—•—• +	`/	`3H`%	*	*	*	*	ê@`*`
+ˇˇˇÛPT        Å   ˇˇˇˇ                  Ñ          8   kGëì8                            ¡   µ   º  K¢• 
+`QÄD   QõıD                            º  ·J   ‰m   s ¢• `
+ˇˇˇ¸P3QÄH   K∏H                            ª    º  s Ã  ﬂº  ¢• 	`ˇˇˇÛP'	`#QÄ   ¡|L⁄   ∆                        ∞±   ﬂº  · ö   ó   ﬂ   ó   ±   ﬂæ   J   ö   ó      ¢ó   ª   ·J   ‰æ   s öQ   ó	      æ   K&   &ª   ·J   ‰ª   ·J	   ‰æ   s 
+   s &   &¢ô   ó      æ   &   &¢ó   •¶ 	`ï `5F	`ˇˇˇ¯P-	`ˇˇˇ˙Pˇˇˇ˘P:; 	`;V`   ∫6≤`   3                         º  ö   ó      º  1&   &ô   ó      ó   ¢• `í 6üQÄÄÄ¥  m˚¥                 9       Ω Œ   ﬂΩ Œ   ﬂ¡   J   ö%   ó      ¡   J   &   &ô   ó      ó   Õ   ﬂ¡   J   ö%   ó      ¡   J   &   &ô   ó
+      ó
+   Õ  ﬂª       º  1&	   &º ö   ó   ª
+   ô   ó      ó   1&   &º 1&   &ª    º s 1&   &ª    º s 1&   &¡   J   ö1   ó      º  1&   &¡   J   1&   &ô   ó"      ó"   1&   &æ   æ  &1&   &º  1&   &¡   J   1&   &s Œ   ﬂ¡   ·J   ‰   w ﬂ¡   ·J   ‰   s ·J   ‰   m   w ﬂ¡   ·J   ‰   s ·J   ‰   m    w ﬂ¡   ·J!   ‰w  ﬂ¡   ¢•í `ô  ™ `ô ™ `%QKÆ@	+ˇˇˇÎPKˇˇˇÓPKô GÆ 6í@PI`ë 	P$`ë 	P$ˇˇˇÙPD`ë 	PˇˇˇÙPD!`	P$`QÄÄ|   ?to[|   >                          ¡   J   ö   ó   ¡   ·J   ‰w  ﬂó   ª    ¡   m   w ﬂ• `î `P)	`
+ˇˇˇıPDPÄÄ<   nAßé<                             ¡   ·J   ‰w  ﬂ• `	P$	PÄ|   §ö™|   >                          ¡   J   ö   ó   ¡   ·J   ‰w  ﬂó   ª    ¡   m   w ﬂ• `î `P)	`
+ˇˇˇıPDPÄÄ<   nAßé<                             ¡   ·J   ‰w  ﬂ• `	P$	PÄÑ   IáÒSÑ   B                        º º  KÕ   ﬂæ   ö   ó   æ   ¢ó   ª   ·J   ‰   º  &w ﬂº  ¢• `,	`.	`4F`,ˇˇˇœP$`QÄÄÄ   G°ü   b         
+       +       ª   ·J   ‰º s Ã ﬂª    º s Õ   ﬂº     &Õ  ﬂ   º  &Õ  ﬂ   ª    æ   s &Õ  ﬂª    	   æ  &
+   &s J   ö5   ó   ª    æ      &ª       s &   &w ﬂ¢ó   ª       º ö   ó      ô   ó      ó   &   &æ  &   &æ  &   &º &   &æ   &   &º ö   ó$      º &   &ô   ó&      ó&   &   &s ·J   ‰æ  w ﬂ¢• `ˇˇˇ˘P'`ˇˇˇˇP(`.`)`ˇˇˇıP)	`ˇˇˇ‚Pí 	`
+[
+ˇˇˇÊPD		`1F`≠ =+,*++í@3î0ë@PJˇˇˇ˜P$`QÄÄÄ¥   üt[o¥   j                        º  ·J   ‰   s Õ   ﬂæ   ·J   ‰s  Õ  ﬂº  ·J   ‰   w ﬂæ   ·J   ‰s  ·J   ‰   s ·J   ‰æ  w ﬂ• `P(`PH`PD`PP
+ˇˇˇ¸PPÄÄ    )>7   N         
+       $       ª    º s Õ   ﬂº  ·J   ‰   s Õ  ﬂº  ·J   ‰   s Õ  ﬂ   ª    æ   s &Õ  ﬂº º ö$   ó   º  ·J   ‰   w ﬂ¢ô]   ó   ª	    
+   æ  &   &s J   ö5   ó   ª    æ      &ª       s &   &w ﬂ¢ó   º  ·J   ‰   w ﬂº  ·J   ‰   æ  w ﬂæ  ·J   ‰º w ﬂæ  ·J   ‰æ   w ﬂº ö   ó#   º     w ﬂó$   • `ˇˇˇˇP(`P(`P(`ˇˇˇıPI	`.	`PD		`1;
+ `ˇˇˇ‚Pí `
+[
+ˇˇˇÂPD`1F`PD`ˇˇˇÈP$`ˇˇˇ¸P$`ˇˇˇ˚PD	`-	`	P9PÄ\   ],Ú\   )                         ∑   º  ·J   ‰l   m   s     ﬂª   ¢• `%	EPI`QÄX   ˙ë∑DX   &                            º  ·J   ‰s ·J   ‰s  &   &¢• `P
+P*	QÄÄÄH   Dj•H                            ª   ·J   ‰º º  s ¢• `ˇˇˇÎPQÄÑ   KJ€Ñ   H                         ª   ·J   ‰º  º s ö$   ó   º  ·J   ‰º J   s ô   ó   º  ó   ¢• `ˇˇˇÚPó "ˇˇˇ˘PïQÄÄà   µ™Ôcà   G   	                     Ω Œ   ﬂ9   Œ   ﬂº  ·J   ‰s  ·J   ‰m   w ﬂª   ·J   ‰¡   s ¢•)`+`
+P
+ˇˇˇ¸PD`ˇˇˇˆPQÄ   üÒ/1   Æ                        ª    º  J   ¡   s Õ   ﬂ¡   æ   Kök   ó   ¡   æ   K   ö)   ó	   ¡   æ   h   ¡   æ   Ki    Nﬂó   ¡   æ   K·J   ‰º  J   w ﬂô   ó   ¡   æ   º  J   Nﬂó   • `ˇˇˇÙP(`î `õ `ñ@`ë ˇˇˇ˚P `ò@
+P|   –ƒÊœ|   @                        Ω  Œ   ﬂΩ Œ   ﬂ¡   ·J   ‰   w ﬂª   ·J   ‰º m   w ﬂ•í `ë P$`ˇˇˇıP4PÄÄÄÿ  ≤ßVÿ  N  	                    Ω Œ   ﬂ¡  ·J   ‰   ¡  &º  &   &s Õ   ﬂæ   ·J   ‰   s ö1   ó   ª       æ   s ·J   ‰m	   w ﬂô◊   ó   æ   ·J   ‰
+   s ö#   ó   æ   ·J   ‰¡   w ﬂôú   ó   æ   ·J   ‰   s ·   ü1   ó   ·   ü    ó   ·   ü-   ó   †L   ó   æ   ·J   ‰¡   w ﬂô.   ó   æ   ·J   ‰   ¡      w ﬂô   ó   •)`	
+ˇˇˇÁP(`ê 	P-`ˇˇˇıP
+ˇˇˇ˚PN`ê 	P-`ˇˇˇ¸P `ê 	P¿ `ˇˇˇ¸P$` `ê ˇˇˇÔP$`JP`   ±ÃÌ`   0                       ﬁÕ   ﬂæ   J   ¡   ö   ó   æ   L   ﬂó   •&`	ê `ê PÄÄ,  éùˆ—,  ì                        m   Œ   ﬂm   Œ   ﬂº  J   Œ   ﬂº  J   ù   ó   ﬂº  ó   Õ   ﬂæ   ·J   ‰   s J   Œ   ﬂ¡   ö"   ó   æ   ·J   ‰   s ô   ó   æ   ·J   ‰   s ó   Œ   ﬂ¡   ·J   ‰	   s ö   ó    ¢ô   ó   ¡   ·J
+   ‰	   w ﬂó   ¡       s Œ   ﬂ¡   ·J   ‰   s Õ  ﬂæ  ·J   ‰   ¡   w ﬂ¡   ú    ó   ﬂ¡   ·J   ‰   s ó   ö)   ó   ¡   ·J   ‰      m   w ﬂó    •ñ@` ê `† ` ê Pê `ü Pù PN	`ë P-	`1Ä  ﬁ;	 	`ë PI`P)`ë PHÄ  ’`ê ˇˇˇÙP$	`ê ë Pì 	`ñ :ˇˇˇÃP9Ä  ﬁPÄÄÄx   áqQx   6                         ¡   ·J   ‰º  s ·J   ‰¡   ·J   ‰   º  &s s ¢• 	`ˇˇˇ˚P
+
+ˇˇˇÒPˇˇˇˆP#QÄ§  ö∆zÓ§  #                      ﬁÕ  ﬂm   Œ   ﬂm   Œ   ﬂm   Œ 	  ﬂm   Œ   ﬂº  ·J   ‰w  ﬂ¡  ·J   ‰   w ﬂª    æ  s Œ   ﬂŒ   ﬂŒ   ﬂ¡   	   s Õ   ﬂh    Œ   ﬂæ   J
+   öp   ó
+   h    Œ 
+  ﬂæ   ·J   ‰m   w ﬂ¡ 
+  J
+   ö$   ó   ¡ 
+  ·J   ‰m   w ﬂô   ó   ¡    w  ﬂó   ô   ó   ¡    w  ﬂó   •≤ 	`
+P$	`í PD`ˇˇˇˇPI*`'`'`P(`K9`ì #`K<`ˇˇˇ˚PDD`î `ˇˇˇ¯P>H `ô0K `OÄ  ¿PÙ   l™⁄ÌÙ   ±   	                    Ω  Œ   ﬂm   Õ   ﬂ¡   ·J   ‰   s    ù%   ó   ﬂ¡   ·J   ‰   s    ó   úS   ó   ﬂæ    s  ú@   ó
+   ﬂ¡   ·J   ‰	   s ú    ó   ﬂ¡   ·J   ‰
+   s ó   ¢•ì@`ë P• !Pû P.ë Pë P)	QÄÄp   åÉ®Òp   2                          Œ   ﬂ¡  ·J   ‰   s ·J   ‰m   w ﬂ¡   ¢• `G`ë P
+ˇˇˇ˚PD`%QÄÄÄÄ   &8g»Ä   A                        ª    º s Õ   ﬂæ   ·J   ‰   s    ö   ó   Œ   ﬂó   • "`ˇˇˇˇPH`ê Pì `LPÄÄÄò   ƒ&ËÆò   W                         ¡   ù*   ó   ﬂ¡   K·J   ‰º  s ª   J   ó   ö   ó	   ª    º  s Œ   ﬂó   •@`ü EˇˇˇËP!ö `ˇˇˇ˛PN	PÄ∏   w÷7∏   s                
+       Ω  Œ   ﬂΩ Œ   ﬂ¡   J   KÕ   ﬂª   Ä„  Å  Õ  ﬂæ  m   L   ﬂæ  m   L   ﬂæ  ·J   ‰æ   ·J   ‰s w ﬂ•í `ë `í@`O	`O`PˇˇˇÈP$	PÄ`   -•§¥`   %                          ¡  ·J   ‰¡   w ﬂ¡   ¡   w ﬂ• `ˇˇˇ˚P$`ˇˇˇˇP$PÄL   º,L                             ¡   ö   ó   ¡   w  ﬂó   • `/`OPÄÄ§   ó‹å?§   Y                        ª    º s Õ   ﬂ¡    æ   s ú   ó   ﬂº J   ó   ö   ó   ¡ 
+  ·J   ‰º w ﬂó   • `ˇˇˇˇPH`ˇˇˇˇP• `ˇˇˇ˚PIPÄÄÄT   ÒÑu.T                            ¡ 	   º  º &¡ 
+  J   w ﬂ• `
+ˇˇˇÓP$PÄÄÄ  M”Qå  '                 :        ¡      s ·J   ‰m   w ﬂ¡      s ·J   ‰m   w ﬂ¡      s ·J   ‰m   w ﬂ¡      s ·J   ‰m	   w ﬂ¡   ú'   ó   ﬂ¡   J
+   ú   ó   ﬂ¡   ó   ö¶   ó   ¡  öd   ó   ¡  ·J   ‰   w ﬂ¡   ·J   ‰   ¡  s ·J   ‰   w ﬂ¡  ·J   ‰   w ﬂô.   ó   ¡   ·J   ‰   9   m   <   w ﬂó    ô÷   ó    ¡  ö(   ó!   ¡      s ·J   ‰m   w ﬂó$   ª    ª   s ·J   ‰   h   ¡   i    w ﬂ¡   ·J   ‰   w ﬂª   ·J   ‰¡   ·J   ‰   s ·J   ‰s  J   ª   J    +'w ﬂ¡  ·J   ‰   w ﬂó:   • `P
+ˇˇˇ˚PD`P
+#ˇˇˇ˚PD`P
+ˇˇˇ˚PD?`P
+ˇˇˇ˚PDJ`ë ñ ï@L`/`í P$`ë ˇˇˇÛPP$`í P `ë %JQPì0W@Y`/`P
+ˇˇˇ˚PIk`ˇˇˇˇP0
+ˇˇˇ⁄P$`ë P$`ë P
+PˇˇˇæP$`í PIp	PÄÄÄº   vâßåº   h                 	       ª    º s Õ   ﬂæ   ·J   ‰   s ú   ó   ﬂ¡    æ   s ó   ö    ó   Œ   ﬂ¡    º w ﬂ¢ó	   • `ˇˇˇˇPH`ê Pï ˇˇˇÛPí `'`ˇˇˇˇP$`AVÄ∏   &Âj≈∏   c                 	       ª    º s Õ   ﬂæ   ·J   ‰s  ú   ó   ﬂ¡    æ   s ó   ö    ó   Œ   ﬂ¡    º w ﬂ¢ó	   • `ˇˇˇˇPH`Pï ˇˇˇÛPí `'`ˇˇˇˇP$`AVÄÄÄ<  ©÷/<  ¬                        m   Õ   ﬂª    º s Œ   ﬂ¡   ¡   s öí   ó   ¡   ·J   ‰   s Õ  ﬂŒ   ﬂ¡   ·J   ‰   s ö   ó	   æ    s  ¢ó
+   æ  ·J   ‰m   w ﬂ¡   ö#   ó   Œ  ﬂ¡   æ  Kw ﬂ¢ó   •*"`ˇˇˇˇPI`ˇˇˇˇP-#`ë P(#`G`ë P-`PC(F`ˇˇˇ˚PD"`/`'`ˇˇˇˇP$`A(VÄÄÙ   )Ç2ÿÙ   ù                         ¡   ·J   ‰   s Õ   ﬂ¡   ·J   ‰   s ·J   ‰   s Õ  ﬂæ   ·J   ‰s  ù   ó	   ﬂæ  J   ó
+   ö   ó   ¢ô#   ó   Œ  ﬂ¡   æ   Kw ﬂ¢ó   • "`ë P()`ë PPH`P¶ `A; `'`ˇˇˇˇP$`AV\  c<‘\  Ó                        ª    º s ·J   ‰   s ù&   ó   ﬂª    º s ·J   ‰   s ó	   Õ   ﬂæ   ö*   ó
+   ª    º s ·J   ‰   s ô   ó   ª    º s ó   Õ  ﬂæ  ·J   ‰s  ú.   ó   ﬂæ   ù   ó   ﬂæ  ·J   ‰	   s ó   ö   ó   Œ   ﬂ¢ó   • *`ˇˇˇˇPPî ˇˇˇ˛P	P-&`î ˇˇˇ˛P	Pì ˇˇˇ˛PM`P
+† Pí `'`AVÄÄÄ‡   ûæY‡   á                        ª    º s Õ   ﬂæ   ·J   ‰   s Õ  ﬂ¡    æ   s ú#   ó   ﬂæ   ·J   ‰   s J   ó	   ö#   ó
+   Œ   ﬂ¡    æ  Kw ﬂ¢ó   • "`ˇˇˇˇP(`ê PH`ˇˇˇˇPû Pó `'`ˇˇˇˇP$`A	VD   `,ΩD                             ¡  ·J   ‰   w ﬂ• `í P$PÄÄp   p5£p   4                        ﬁÕ   ﬂª    æ   s ·J   ‰   s ·J   ‰m   w ﬂ•&`ˇˇˇˇPP+ˇˇˇ„PDPÄd   ‚Hçd   /                          ¡   J   ö   ó   ¡   ·J   ‰m   w ﬂó   • !`î !`ˇˇˇ¯PIPÄ(  
+pÍˇ(  ∆                        ª    º  s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ  ·J   ‰   s öA   ó   ª    ª       s 	   &ª    
+   s &   w ﬂôH   ó   æ  ·J   ‰   ª       s &	   &ª    
+   s &   &w ﬂó   • 2`ˇˇˇˇP(8`ê PH)`ê P-)`[	1[	ˇˇˇŒP )`W[
+([
+ˇˇˇzPI	!PÄÄÑ   'õ…KÑ   K                  	       º  J      ö7   ó   º  ·J   ‰w  ﬂ¡   ·J   ‰s  ·J   ‰   w ﬂó	   • `ò `
+P$`PPI	PÄ,  \ ﬁØ,  ¶         
+       (       º  ª   !ö   ó   º  J   ô   ó   º  ó   Ã  ﬂ   º  &   &Õ   ﬂ   Õ  ﬂ   º  &   &Õ  ﬂ   º  ·J	   ‰
+      s &   &Õ  ﬂº  ·J   ‰   s KÕ  ﬂæ  ·J   ‰s  ·J   ‰   s ö   ó   æ   ¢ô–   ó   æ  ·J   ‰s  ·J   ‰   s ùP   ó   ﬂæ  ·J   ‰s  ·J   ‰   s ù(   ó   ﬂæ  ·J   ‰s  ·J   ‰   s ó"   ö   ó#   æ  ¢ôE   ó#   æ  ·J   ‰s  ·J   ‰   s ö   ó(   æ  ¢ô   ó(   æ  ¢ó(   • `Æ `-/`*`%/`Tî P/`P*	`PP-	`4K	`PPô  PPô !PPí 	`4K`PP-	`4; 	`4Vh   Ñ¨~h   /                        Ω Œ   ﬂΩ Œ   ﬂª    º  s ·J   ‰m   w ﬂ•í `ˇˇˇˇP
+ˇˇˇ˚P4PÄ®  _îj®          
+              ﬁÕ  ﬂª    æ  s ·J   ‰   s Õ   ﬂª   ·J   ‰æ   ·J   ‰   s s Õ  ﬂª   ·J   ‰ª	    ª   ·J
+   ‰æ  s s s Õ  ﬂ¡  ö'   ó   æ  ·J   ‰      s Õ  ﬂó   ª   ·J   ‰æ  s Õ  ﬂª   Ä„  Å  Œ   ﬂ¡   ·J   ‰æ   w ﬂ¡   m   L   ﬂ¡   ·J   ‰æ  w ﬂ•&`ˇˇˇˇPP(`ê 	PˇˇˇÌP(	`ˇˇˇ˙Pˇˇˇ·PˇˇˇˆP(`ë `ï PM	`ˇˇˇˆP(`ì 	`ˇˇˇıP$	`ê@	` ˇˇˇËP$P0   ˜hê:0                              m   ¢• `E	QÄh   à}\™h   2                         ¡   ·J   ‰º  w ﬂ¡  ö   ó   ¡   w  ﬂó   • `ˇˇˇÓP$`/`OP‹   bÇ‹   ï   	                    Ω  Œ   ﬂ¡   J   ú    ó   ﬂ¡   J   J      ó   Õ   ﬂ¡   J   J   Œ   ﬂæ   ö3   ó   ª   ·J   ‰¡   J   s ·J	   ‰m
+   w ﬂó   ¡   ¢•)`¥ `ï 	`.	`
+ˇˇˇ˚P
+ˇˇˇ¯PI`QÄÄË   CxjË   ´                         ¡   º  Kù   ó   ﬂ¡   º  KJ   ó   úG   ó   ﬂ¡   J   J   º  Kú)   ó   ﬂ¡   J   J   º  KJ      ó   ö0   ó   ¡   J   º  ª    ¡   J   º  Ks Nﬂó   • `ï üû≠ `ì %ˇˇˇÛPJ	PÄH   ∞ã∆XH                            º  ·J   ‰l      s ¢• `
+
+ˇˇˇ¯PQÄ   fÜÂq   °                         ª   J   ú   ó   ﬂª   J   J   º  Kó   öO   ó   ª   J   J   º  K·J   ‰ª    º ù   ó   ﬂ   ó   1s w ﬂô$   ó   ª   ·J   ‰	   º  1&w ﬂó   • 	`∑ 	`ö , ô ˇˇˇÔPˇˇˇ¯P 	`ˇˇˇ·P9PÄÄ8  ,K;ﬂ8  ¡                          ª   ·J   ‰9   <   w ﬂª       s ·J   ‰      m	   w ﬂª       s ·J   ‰
+      m   w ﬂª       s ·J   ‰      m   w ﬂª       w ﬂª       s ·J   ‰m   w ﬂ• `ˇˇˇÙP$`Pî 1ˇˇˇÿPD4`Pî 6ˇˇˇ”PD:`Pî >ˇˇˇÀPDB`PDD`P
+ˇˇˇ˚P4GPÄ  Í¬¸  g        	       '       ﬁÕ  ﬂ∞±  ﬂª    æ  s Œ   ﬂ¡   ·J   ‰   s Õ   ﬂ¡   ·J   ‰   s Õ  ﬂ9      <   	   <
+   <   <      <   <   m   <   m   <   ±  ﬂæ   ö,   ó   æ  ª    s  ·J   ‰   s L   ﬂó   æ  ú   ó   ﬂ¡   ·J   ‰s  ó   öT   ó   æ  ª    s  ·J   ‰   s L   ﬂ¡   ·J   ‰ª    s  ·J   ‰   s w ﬂó%   ¡   ·J   ‰æ  w ﬂ“•&`ˇˇˇˇP) `ë P(#`ë PH#`%**&&*&JO(`.`
+P	PN+`Pì `
+!P	P)`
+V	PˇˇˇÛPI/	`ˇˇˇıP%PÄÄ        `  ˇˇˇˇ¿   „y>Ê¿   {                          ¡   ·J   ‰s  öV   ó   ¡   ·J   ‰   s ·J   ‰   s ·J   ‰   s ·J   ‰	   s ·J
+   ‰w  ﬂó   ¡   ·J   ‰w  ﬂ• `P-`ë P*U*U*U*PI	`P$PÄ  ∆÷Ü  k         	       ,       ª    º J   s Õ   ﬂª    º s Ã ﬂ¡   ·J   ‰s  Õ  ﬂº J   ö   ó
+      º &Ã ﬂó   æ   J   ö   ó      æ   &Õ   ﬂó   ª   ·J   ‰æ  s    ö√   ó   ª	   Äº  
+   &º &
+   &æ   &„  Å Õ  ﬂª    æ  s ù(   ó   ﬂæ  ·J   ‰s  ª    º s 'ó#   ö#   ó$   ª	   Äº  º „  Å Õ  ﬂó&   ¡   ·J   ‰ª   J   ·J   ‰   æ  s w ﬂó,   • `ˇˇˇˇP(`ˇˇˇˇP'`PH`î `-`ï `O`ˇˇˇ˚Pì #`		
+	ˇˇˇ‹(`ˇˇˇˇPô Pˇˇˇ˘Pï `ˇˇˇÒPM`
+ñ $ˇˇˇÈPˇˇˇÔPIPÄÄt   D±€ót   6                        ﬁÕ  ﬂª    æ  s ·J   ‰   s Õ   ﬂª    æ   w ﬂ•&`ˇˇˇˇPPH	`ˇˇˇˇP$P¨   jh¨   e                       ﬁÕ   ﬂº  J   öN   ó   º  ·J   ‰w  ﬂª    æ   s ·J   ‰   s ·J   ‰   s ·J   ‰w  ﬂó   •&`ï `
+PD`ˇˇˇˇPPP
+PIPÄÄÄP   íÇ[&P                            ª    ª    º s w ﬂ• 	`ˇˇˇ˛PˇˇˇˇP$PÄÄX  MAyè8  œ                        –   9   º <   º  <   º <   ≥   ﬂº ö'   ó   ª   ·J   ‰¡   º s Œ   ﬂó   º öY   ó	   º    ö3   ó   ¡   9	   
+   <      <   L   ﬂô   ó   ¡   º L   ﬂó   ª   Äm   „  Å §—•—• 6%`%	(	(	N	`-	`ˇˇˇÏPN		`-`ì `**ö0 `ì@`	ˇˇˇÙP3)TÄÄÄX        …   ˇˇˇˇ    Ã          ê   y⁄ê7ê   K                        Ω  Œ   ﬂΩ Œ   ﬂª   ·J   ‰¡  µ  s ·J   ‰m   s ·J   ‰m   w ﬂ•í 	`
+ˇˇˇ˚P
+ˇˇˇ˚PJˇˇˇ˚PDPÄÄÄ@   A Ç@                            ¡    º  w ﬂ• `ˇˇˇˇP$	PÄÄÄ∞  ÕrÖCê                        ∞±   ±  ﬂº  J   ù   ó   ﬂó   ±   ﬂæ   ú   ó   ﬂæ   J   ó   ±  ﬂæ   õ5   ó   ª       º  J   &   &º  J   &w ﬂ §“•ó   ª   ·J	   ‰æ  s ö#   ó   æ  ·J
+   ‰m   w ﬂô,   ó   æ  ú   ó   ﬂª    æ  w ó   ﬂó   ¡    9      <   æ   <   w ﬂ“• *"`û %`¢ `.`	ˇˇˇŸP$`A	H`ˇˇˇ¯P-`ˇˇˇ¯P> `ï  ˇˇˇÛPN`
+	ˇˇˇÈP%	PÄÄÄ∞           ˇˇˇˇ    Ç          @    sƒ˙@                            ª    º  w ﬂ• `ˇˇˇˇP$PÄÄÄ3ıÿ  `    `    p  `ã   @  r        _  5            `    ã     `9    `7  8  	  p	  `9    `7  8    p  `     !  ã   #  $  $  &  '  (  )  *    +    ,  ;  -  .  /  0  1  2  3  4  ´   5   6    p:  
+  p;  
+  `?  @  A    `_  ö   G  H  .  J  K  $  L  M  @  N     O    P  Q  ã   R  S  T  U  V  W  X  Y  3    `´   ]  _  `  a  b  ã     `  ´   i  k  J  K  l  a  $  L  M  @  N     O    .  m  n  _  o  p    `_  s      `œ  À    P  p  `_  ¸     `_  y  z  @    `w  r  i  Ä  B    `   @}      pt  Å    `B  ä    `´   á  ]  ú à  $  â  á     pã  _  m  "  =  å  ç  é  è  1    `É  Ñ  $  á     p  `´   ù  û    `$  ∑  ∏  π    `≥  ¥  á     p  `  p∑  ∏  π  m  "  ∫  ô  ª  º    `æ  ø  ¿  $    `Ä     `  `√  ≈  !  p∆  "  p«  …    "  `$  ú Ã  #  `$  _  %  `´   —    ù  ”  _  @  &  `$  ô  ç  Ÿ  ´     _  ú Ã  $  `)  p$  ´   ’  ô  ◊  á   *  p'  `$  ´   ’  €  @  (  `é  ß  +  `$  ñ  ¥  ô  „  N  O  ‰     Â  π  Ê  Á  Ë    *  `@  ∏   /  p)  `$  ‡  …   ·  .  p!  `À  á   &  pÕ  '  pŒ  (  p⁄  +  p@  é  ß  ‹  6  É  ›    @,  pﬁ  ﬂ  -  p$  È  Í  b  Î  Ï  ñ  Ì  õ  Ó  Ô  ,  `$  B  Ä  -  `@    `  p  p   p%  p¶  é  ß  $  ≠  @  á   #  p∏   $  p.  `Ö  Û  ¶  Ù  É  6    `  p  pì  ñ  ó  @  ò  ô  ö  `  †  ¢  £   6    Ò  Ú  0  p/  `o  ˜  ˘  ˙  ã   ˝  ˛    À     œ      	 
+   3  ` 2  `5  p1  `$  ´        t  Å         4  p  0  `$  á   3  p5  `ì   " ¶   "  #     4  ` "  ∏   ! o  :    ∏   7  p6  `À    P& :  `=  `N  ;  `<  `c N  e ¯     f r    ∏   E  p  @h ,   9  `$  ` |   C  pb D  p7  `8  `  @<  "    o  Z ¬   @] \ _ ^ [ ¨  B  p@  `>  `?  `  @  &    <    >  	  "  
+  '     PÀ    pA  `Î  ) * + $ ã   ?  , - E  `_  ñ  ¥  l  @ `  A ´   €  9  B F  `x  E _  @  0  $  F ã   u  -    H w  I J 8 C  `D  `$    3 5   @8 7 : 9 ; < à  = > <  p? =  pC L π   M K _  N I G  `$  ñ  P Z  H  `R ¶  $  ñ  P ´   S 6  I  `ê  $  B  `$  /   @0 4   b  1 ;  p6  O >  pÒ  Q ?  p T ò  á   @  p   `  p  p  p  p  p  p  p  p  p  p  p  p  p  p1  p2  p6  p8  pA  p   $            p' 9  pÈ  . :  pˇXÑj                 Ú             Ò     i                            j                                   "   "                 k             l             k             l       D      <        H      B        d      Z        l      c        á      K        É      m       å      t        è      w        ö      {        î      n       ∏      Ç        §      o       °      p       j     ê        æ      õ        T     §        Ã      Ø        «      ±        ¬      u       ◊      Ω        ﬂ   	   ¡        ‹      x       ﬁ      y       N     z       R     z       -  !   »        Ë      |       Ï      |         	   |       Ô      –        ˜   
+   ~       
+     |            ﬁ        '     |       #     ~            Ä       c     Å       ~     ı        ´            ò     Ç       ñ     É       î     Ñ       ∑            Ø     Ö       ¬     $         
+   '     !
+ U               )                    ?            C       D               I  	             R               ‡     U       Ÿ     Ü       ∆     á       …     á       «     à       ùH©¿      nW      nW                 É   ©  z   ©                 à  •    •     $           ¡  %  ¨  %                 Á  !  ﬁ  !                  D  >  '  >                 Z  «  @  «  "             ÄÎ  P
+  …  P
+  &   #           —  ^	  »  ^	  ;   ;             )	  V	  !	  V	  =   (            î	  #
+  ã	  #
+  A   4             Ó	  
+  Ê	  
+  C   (             e
+  -  R
+  -  K               A    0    U                 ⁄  Ú  ⁄  q               ı  O  ‹  O  z              d  F  Q  F  ó               »  /  ø  /  ô               e  µ  H  µ  ü               Ã    ∑    £             Ä3  Î     Î  ß               Ä  «  w  «  ©   )          Ä     Ì    ∑             ÄN     E     π              Ù  Y  Î  Y  º   1           Ä)  =    =  –   $            ‰  ?  Ã  ?  ›             Ç¸  ®;  Á  ®;  „             Äb  "  M  "  Ó             ÄÓ  I!  Œ  I!  Ò   -             S   !  J   !  Ù   <            @"  `#  #"  `#    &          Ä#  R%  j#  R%  
+              $  u$  $  u$    '             †$  %  ó$  %    )             …%  â&  ¿%  â&    *            Ë&  Q'  ﬂ&  Q'  (  2           ˛'  ¢;  „'  ¢;  2  $             D(  h)  ;(  h)  3  B            ≥)  Œ*  ™)  Œ*  =  H          Ä+  Y1  +  Y1  G  ?            {+  c-  a+  c-  J  +             Ω.  b0  ¥.  b0  _  +            ö1  &3  ë1  &3  q  >            ˛4  c5  ı4  c5  Ñ  ,           (6  <:  6  <:  å  B            Å6  $:  x6  $:  ç  U             ˚6  Í9  Ú6  Í9  è  ?            c<  =  Z<  =  ß  L            *=  ¨@  =  ¨@  ∞            Ä…@  ÙC  Æ@  ÙC  ¬            Ç	A  ÒC   A  ÒC  √             ¯B  ∂C  ÔB  ∂C  Õ  '             C  ¨C  C  ¨C  Œ            ÄD  1F  ˆC  1F  Ÿ  #            ÓD  F  ÂD  F  ›  6            IF  }F  3F  }F  Ë              ïF  íG  ïF  íG  Ï             ±G  œQ  ®G  œQ  ı             Ç8H  çO  /H  çO  ˜  @             ËI  [K  ﬂI  [K                  ÖK  !N  |K  !N    )           ’O  @P  ÃO  @P  )  E            êP  8Q  áP  8Q  /  M            çQ  ÀQ  ÑQ  ÀQ  9  !           ÁQ  lW  ”Q  lW  >            Ä6T  iW  -T  iW  R  !            uT  ©T  lT  ©T  S  +           πT  aW  ∞T  aW  U              MV  ßV  DV  ßV  ]  2          5°›çÜÏâ‘òÌ@J      	gÜ°'gÜ°'G≈ÓgÜµï   r    O^partitionKey=%28https%2Ctalentadore.com%29,:https://ats.talentadore.com/static/general-ui.js?v=4.6.0hm26-2964e10 necko:classified 1 strongly-framed 1 security-info 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 request-method GET response-head HTTP/2 200 
+date: Tue, 14 Jan 2025 16:36:11 GMT
+content-type: application/javascript
+content-length: 22382
+last-modified: Mon, 13 Jan 2025 15:38:26 GMT
+etag: "67853372-576e"
+cache-control: public
+strict-transport-security: max-age=15724800; includeSubDomains
+accept-ranges: bytes
+X-Firefox-Spdy: h2
+ original-response-headers date: Tue, 14 Jan 2025 16:36:11 GMT
+content-type: application/javascript
+content-length: 22382
+last-modified: Mon, 13 Jan 2025 15:38:26 GMT
+etag: "67853372-576e"
+cache-control: public
+strict-transport-security: max-age=15724800; includeSubDomains
+accept-ranges: bytes
+X-Firefox-Spdy: h2
+ ctid 2 uncompressed-len 0 net-response-time-onstart 330 net-response-time-onstop 371 alt-data 1;22382,javascript/moz-script-bytecode-20241209150345-8l alt-data-from-child 1  F=

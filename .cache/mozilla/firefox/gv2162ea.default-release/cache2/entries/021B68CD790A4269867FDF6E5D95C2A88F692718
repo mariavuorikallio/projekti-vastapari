@@ -1,0 +1,637 @@
+var globalTranslations = {
+poweredBy: 'powered by Klaro!',
+ok: setTextFromName('cookie.ok') || 'not yet loaded',
+save: setTextFromName('cookie.save') || 'not yet loaded',
+acceptAll: setTextFromName('cookie.consent-modal.accept-all') || 'not yet loaded',
+acceptSelected: setTextFromName('cookie.consent-modal.accept-selected') || 'not yet loaded',
+decline: setTextFromName('cookie.necessary') || 'not yet loaded',
+consentNotice: {
+    description: setTextFromName('cookie.consent-notice.description') || 'not yet loaded',
+    learnMore: setTextFromName('cookie.consent-notice.learn-more') || 'not yet loaded',
+},
+service:{
+    required: {
+    title: setTextFromName('cookie.consent-modal.required.title') || 'not yet loaded'
+    },
+    disableAll:{
+    title: setTextFromName('cookie.consent-modal.disable-all.title') || 'not yet loaded',
+    description: setTextFromName('cookie.consent-modal.disable-all.description') || 'not yet loaded'
+    }
+},
+consentModal: {
+    title: setTextFromName('cookie.consent-modal.title') || 'not yet loaded',
+description: `
+    ${setTextFromName('cookie.consent-modal.description') || 'not yet loaded'}
+    <div id="technicalspecification" style="display: none">
+        ${setTextFromName('cookie.consent-modal.cookie.technicalspecification.currentstate') || 'not yet loaded'}
+        ${setTextFromName('cookie.consent-modal.cookie.technicalspecification.consentdate') || 'not yet loaded'}
+    </div>
+    ${setTextFromName('cookie.consent-modal.choice.title') || 'not yet loaded'}
+    <button class="accordion" id="technicalSectionButton" style="margin-bottom: 10px;" onclick="expand(technicalSectionButton, technicalSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="technicalSectionContent" style="display: none">
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.technical.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.technical.description') || 'not yet loaded'}
+        </tbody>
+    </table> \
+    </div>
+    <button class="accordion" id="functionalSectionButton" style="margin-bottom: 10px;" onclick="expand(functionalSectionButton, functionalSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.functional.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="functionalSectionContent" style="display: none"> \
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.functional.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.functional.description') || 'not yet loaded'}
+        </tbody>
+    </table>
+    </div>
+    <button class="accordion" id="statisticsSectionButton" style="margin-bottom: 10px;" onclick="expand(statisticsSectionButton, statisticsSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.statistics.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="statisticsSectionContent" style="display: none"> \
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.statistics.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.statistics.description') || 'not yet loaded'}
+        </tbody>
+    </table> \
+    </div>
+    <button class="accordion" id="unclassifiedSectionButton" style="margin-bottom: 10px;" onclick="expand(unclassifiedSectionButton, unclassifiedSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.unclassified.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="unclassifiedSectionContent"> \
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.unclassified.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.unclassified.description') || 'not yet loaded'}
+        </tbody>
+    </table>
+    </div>`,
+},
+}
+var klaroConfig = {
+
+    version: 1,
+    elementID: 'klaro',
+    styling: {
+        theme: ['light', 'bottom', 'wide'],
+    },
+    noAutoLoad: false,
+    htmlTexts: true,
+    embedded: false,
+    groupByPurpose: true,
+    storageMethod: 'cookie',
+    cookieName: 'klaro',
+    cookieExpiresAfterDays: 365,
+    default: false,
+    autoFocus: true,
+    mustConsent: false,
+    acceptAll: true,
+    showAcceptAll: true,
+    hideDeclineAll: false,
+    hideLearnMore: false,
+    noticeAsModal: false,
+    //Klaro was not good at finding out the language for primo, so assigning the same object (the translations are from primo so it does not matter anyways) to all language keys works.
+    translations: {fi: globalTranslations, en: globalTranslations, sv: globalTranslations, zz: globalTranslations},
+    services: [{
+            name: 'technical',
+            default: true,
+            title: setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded',
+            purposes: [setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'],
+            required: true,
+            onlyOnce: true,
+        },
+        {
+            name: 'giosg',
+            default: false,
+            title: 'Giosg Chat',
+            purposes: [setTextFromName('cookie.consent-modal.choice-description.functional.title')],
+            cookies: [
+                [/^gios.*$/],
+                'i18nextLng/',
+                'sgid',
+            ],
+            callback: function(consent, service) {
+                let giosgElement = document.querySelector('.wp-exclude-emoji') ? document.querySelector('.wp-exclude-emoji') : document.querySelector('.giosg-chat-button');
+                if (consent) {
+                    (function(w, t, f) {
+                        var s = 'script',
+                            o = '_giosg',
+                            h = 'https://service.giosg.com',
+                            e, n;
+                        e = t.createElement(s);
+                        e.async = 1;
+                        e.src = h + '/live2/' + f;
+                        w[o] = w[o] || function() {
+                            (w[o]._e = w[o]._e || []).push(arguments)
+                        };
+                        w[o]._c = f;
+                        w[o]._h = h;
+                        n = t.getElementsByTagName(s)[0];
+                        n.parentNode.insertBefore(e, n);
+                    })(window, document, "b624b636-40b7-11e9-8d7e-0242ac110012");
+                } else {
+                    if (giosgElement) {
+                    location.reload()
+                    }
+
+                }
+            },
+            required: false,
+        },
+        {
+            name: 'matomo',
+            default: false,
+            title: 'Matomo/Piwik',
+            purposes: [setTextFromName('cookie.consent-modal.choice-description.statistics.title') || 'not yet loaded'],
+            cookies: [
+                [/^_pk_.*$/, '/', 'klaro.kiprotect.com'],
+                [/^_pk_.*$/, '/', 'localhost'],
+                'piwik_ignore',
+            ],
+            callback: function(consent, service) {
+                if (_paq !== 'undefined') {
+                    if (consent == true){
+                        _paq.push(['setConsentGiven']);
+                        _paq.push(['setCookieConsentGiven']);
+                        _paq.push(['rememberConsentGiven', 8760]);
+                    } else {
+                        _paq.push(['forgetConsentGiven']);
+                        _paq.push(['forgetCookieConsentGiven'])
+                    }
+                }
+            },
+            required: false,
+            optOut: false,
+            onlyOnce: true,
+        },
+    ],
+};
+
+function setTableRowsFromID(elementName) {
+    let tableContent = '';
+    let element = document.querySelector(`[name="${elementName}"]`)
+    let rowTexts = getRows(element.textContent);
+
+    rowTexts.forEach((eachRowText) => {
+        tableContent += '<tr>';
+        eachRowText.split('|||').forEach((eachRow) => {
+            tableContent += `<td class="tg-0pky">${sanitizeText(eachRow)}</td>`;
+        });
+        tableContent += '</tr>';
+    });
+    return tableContent;
+}
+
+
+function getRows(rowString) {
+    const regex = /\[([^\]]+)\]/g;
+    const matches = [];
+    let match;
+    rowString = ((rowString).replaceAll('\\[', '<')).replaceAll('\\]', '>')
+
+    while ((match = regex.exec(rowString)) !== null) {
+        matches.push(match[1]);
+    }
+    return matches
+}
+
+function setTextFromName(elementName) {
+    let element = document.querySelector(`[name="${elementName}"]`)
+    let sanitizedContent = sanitizeText(element.textContent)
+    return sanitizedContent
+}
+
+function sanitizeText(text) {
+    return ((text).replaceAll('[', '<')).replaceAll(']', '>')
+}
+
+function expand(button, content) {
+    button.classList.toggle("active");
+    if (content.style.maxHeight) {
+        content.style.maxHeight = null;
+	content.style.display = "none";
+    } else {
+	content.style.display = ""
+        content.style.maxHeight = (content.scrollHeight+800) + "px";
+    }
+}
+
+function getCookie(name) {
+    let value = "; " + document.cookie;
+    let parts = value.split("; " + name + "=");
+    if (parts.length === 2) return parts.pop().split(";").shift();
+}
+
+function enableFunctionalCookies() {
+    klaro.getManager().updateConsent('giosg', true)
+    klaro.getManager().saveConsents()
+    location.reload()
+}
+
+function setKlaroSpecification(){
+    let klaroCookie = getCookie('klaro');
+    if (klaroCookie) {
+        let klaroData = JSON.parse(decodeURIComponent(klaroCookie));
+        console.log(klaroData)
+        const currentState = {
+            "truefalsefalse": setTextFromName('cookie.necessary') || 'not yet loaded',
+            "truetruetrue": setTextFromName('cookie.consent-modal.accept-all') || 'not yet loaded',
+            "truetruefalse": `${setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'}, ${setTextFromName('cookie.consent-modal.choice-description.statistics.title') || 'not yet loaded'}`,
+            "truefalsetrue": `${setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'}, ${setTextFromName('cookie.consent-modal.choice-description.functional.title') || 'not yet loaded'}`,
+        }
+        setTimeout(()=>{
+            document.getElementById('technicalspecification').style.display = 'block'
+            document.getElementById('consentdate').textContent = new Date(klaroData.utc)
+            document.getElementById('currentstate').textContent = currentState[`${klaroData.technical}${klaroData.matomo}${klaroData.giosg}`]
+        }, 10)
+    }
+    else {
+        setTimeout(()=>{
+            document.getElementById('consentdate').style.display = 'none'
+            document.getElementById('currentstate').textContent = currentState[`truefalsefalse`]
+        }, 10)
+    }
+}
+        ås  xåsså   20241209150345-8los  Ø(îÕ	,   https://helda.helsinki.fi/klaro/js/config.js      ÷-  var globalTranslations = {
+poweredBy: 'powered by Klaro!',
+ok: setTextFromName('cookie.ok') || 'not yet loaded',
+save: setTextFromName('cookie.save') || 'not yet loaded',
+acceptAll: setTextFromName('cookie.consent-modal.accept-all') || 'not yet loaded',
+acceptSelected: setTextFromName('cookie.consent-modal.accept-selected') || 'not yet loaded',
+decline: setTextFromName('cookie.necessary') || 'not yet loaded',
+consentNotice: {
+    description: setTextFromName('cookie.consent-notice.description') || 'not yet loaded',
+    learnMore: setTextFromName('cookie.consent-notice.learn-more') || 'not yet loaded',
+},
+service:{
+    required: {
+    title: setTextFromName('cookie.consent-modal.required.title') || 'not yet loaded'
+    },
+    disableAll:{
+    title: setTextFromName('cookie.consent-modal.disable-all.title') || 'not yet loaded',
+    description: setTextFromName('cookie.consent-modal.disable-all.description') || 'not yet loaded'
+    }
+},
+consentModal: {
+    title: setTextFromName('cookie.consent-modal.title') || 'not yet loaded',
+description: `
+    ${setTextFromName('cookie.consent-modal.description') || 'not yet loaded'}
+    <div id="technicalspecification" style="display: none">
+        ${setTextFromName('cookie.consent-modal.cookie.technicalspecification.currentstate') || 'not yet loaded'}
+        ${setTextFromName('cookie.consent-modal.cookie.technicalspecification.consentdate') || 'not yet loaded'}
+    </div>
+    ${setTextFromName('cookie.consent-modal.choice.title') || 'not yet loaded'}
+    <button class="accordion" id="technicalSectionButton" style="margin-bottom: 10px;" onclick="expand(technicalSectionButton, technicalSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="technicalSectionContent" style="display: none">
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.technical.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.technical.description') || 'not yet loaded'}
+        </tbody>
+    </table> \
+    </div>
+    <button class="accordion" id="functionalSectionButton" style="margin-bottom: 10px;" onclick="expand(functionalSectionButton, functionalSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.functional.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="functionalSectionContent" style="display: none"> \
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.functional.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.functional.description') || 'not yet loaded'}
+        </tbody>
+    </table>
+    </div>
+    <button class="accordion" id="statisticsSectionButton" style="margin-bottom: 10px;" onclick="expand(statisticsSectionButton, statisticsSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.statistics.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="statisticsSectionContent" style="display: none"> \
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.statistics.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.statistics.description') || 'not yet loaded'}
+        </tbody>
+    </table> \
+    </div>
+    <button class="accordion" id="unclassifiedSectionButton" style="margin-bottom: 10px;" onclick="expand(unclassifiedSectionButton, unclassifiedSectionContent)">${setTextFromName('cookie.consent-modal.choice-description.unclassified.title') || 'not yet loaded'}</button> \
+    <div class="panel" id="unclassifiedSectionContent"> \
+    <span style="margin-top: 10px;">${setTextFromName('cookie.consent-modal.choice-description.unclassified.sub-title') || 'not yet loaded'}</span>
+    <table class="tg">
+        <thead>
+        ${setTextFromName('cookie.consent-modal.choice-description.table-head') || 'not yet loaded'}
+        </thead>
+        <tbody>
+        ${setTableRowsFromID('cookie.consent-modal.choice-description.unclassified.description') || 'not yet loaded'}
+        </tbody>
+    </table>
+    </div>`,
+},
+}
+var klaroConfig = {
+
+    version: 1,
+    elementID: 'klaro',
+    styling: {
+        theme: ['light', 'bottom', 'wide'],
+    },
+    noAutoLoad: false,
+    htmlTexts: true,
+    embedded: false,
+    groupByPurpose: true,
+    storageMethod: 'cookie',
+    cookieName: 'klaro',
+    cookieExpiresAfterDays: 365,
+    default: false,
+    autoFocus: true,
+    mustConsent: false,
+    acceptAll: true,
+    showAcceptAll: true,
+    hideDeclineAll: false,
+    hideLearnMore: false,
+    noticeAsModal: false,
+    //Klaro was not good at finding out the language for primo, so assigning the same object (the translations are from primo so it does not matter anyways) to all language keys works.
+    translations: {fi: globalTranslations, en: globalTranslations, sv: globalTranslations, zz: globalTranslations},
+    services: [{
+            name: 'technical',
+            default: true,
+            title: setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded',
+            purposes: [setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'],
+            required: true,
+            onlyOnce: true,
+        },
+        {
+            name: 'giosg',
+            default: false,
+            title: 'Giosg Chat',
+            purposes: [setTextFromName('cookie.consent-modal.choice-description.functional.title')],
+            cookies: [
+                [/^gios.*$/],
+                'i18nextLng/',
+                'sgid',
+            ],
+            callback: function(consent, service) {
+                let giosgElement = document.querySelector('.wp-exclude-emoji') ? document.querySelector('.wp-exclude-emoji') : document.querySelector('.giosg-chat-button');
+                if (consent) {
+                    (function(w, t, f) {
+                        var s = 'script',
+                            o = '_giosg',
+                            h = 'https://service.giosg.com',
+                            e, n;
+                        e = t.createElement(s);
+                        e.async = 1;
+                        e.src = h + '/live2/' + f;
+                        w[o] = w[o] || function() {
+                            (w[o]._e = w[o]._e || []).push(arguments)
+                        };
+                        w[o]._c = f;
+                        w[o]._h = h;
+                        n = t.getElementsByTagName(s)[0];
+                        n.parentNode.insertBefore(e, n);
+                    })(window, document, "b624b636-40b7-11e9-8d7e-0242ac110012");
+                } else {
+                    if (giosgElement) {
+                    location.reload()
+                    }
+
+                }
+            },
+            required: false,
+        },
+        {
+            name: 'matomo',
+            default: false,
+            title: 'Matomo/Piwik',
+            purposes: [setTextFromName('cookie.consent-modal.choice-description.statistics.title') || 'not yet loaded'],
+            cookies: [
+                [/^_pk_.*$/, '/', 'klaro.kiprotect.com'],
+                [/^_pk_.*$/, '/', 'localhost'],
+                'piwik_ignore',
+            ],
+            callback: function(consent, service) {
+                if (_paq !== 'undefined') {
+                    if (consent == true){
+                        _paq.push(['setConsentGiven']);
+                        _paq.push(['setCookieConsentGiven']);
+                        _paq.push(['rememberConsentGiven', 8760]);
+                    } else {
+                        _paq.push(['forgetConsentGiven']);
+                        _paq.push(['forgetCookieConsentGiven'])
+                    }
+                }
+            },
+            required: false,
+            optOut: false,
+            onlyOnce: true,
+        },
+    ],
+};
+
+function setTableRowsFromID(elementName) {
+    let tableContent = '';
+    let element = document.querySelector(`[name="${elementName}"]`)
+    let rowTexts = getRows(element.textContent);
+
+    rowTexts.forEach((eachRowText) => {
+        tableContent += '<tr>';
+        eachRowText.split('|||').forEach((eachRow) => {
+            tableContent += `<td class="tg-0pky">${sanitizeText(eachRow)}</td>`;
+        });
+        tableContent += '</tr>';
+    });
+    return tableContent;
+}
+
+
+function getRows(rowString) {
+    const regex = /\[([^\]]+)\]/g;
+    const matches = [];
+    let match;
+    rowString = ((rowString).replaceAll('\\[', '<')).replaceAll('\\]', '>')
+
+    while ((match = regex.exec(rowString)) !== null) {
+        matches.push(match[1]);
+    }
+    return matches
+}
+
+function setTextFromName(elementName) {
+    let element = document.querySelector(`[name="${elementName}"]`)
+    let sanitizedContent = sanitizeText(element.textContent)
+    return sanitizedContent
+}
+
+function sanitizeText(text) {
+    return ((text).replaceAll('[', '<')).replaceAll(']', '>')
+}
+
+function expand(button, content) {
+    button.classList.toggle("active");
+    if (content.style.maxHeight) {
+        content.style.maxHeight = null;
+	content.style.display = "none";
+    } else {
+	content.style.display = ""
+        content.style.maxHeight = (content.scrollHeight+800) + "px";
+    }
+}
+
+function getCookie(name) {
+    let value = "; " + document.cookie;
+    let parts = value.split("; " + name + "=");
+    if (parts.length === 2) return parts.pop().split(";").shift();
+}
+
+function enableFunctionalCookies() {
+    klaro.getManager().updateConsent('giosg', true)
+    klaro.getManager().saveConsents()
+    location.reload()
+}
+
+function setKlaroSpecification(){
+    let klaroCookie = getCookie('klaro');
+    if (klaroCookie) {
+        let klaroData = JSON.parse(decodeURIComponent(klaroCookie));
+        console.log(klaroData)
+        const currentState = {
+            "truefalsefalse": setTextFromName('cookie.necessary') || 'not yet loaded',
+            "truetruetrue": setTextFromName('cookie.consent-modal.accept-all') || 'not yet loaded',
+            "truetruefalse": `${setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'}, ${setTextFromName('cookie.consent-modal.choice-description.statistics.title') || 'not yet loaded'}`,
+            "truefalsetrue": `${setTextFromName('cookie.consent-modal.choice-description.technical.title') || 'not yet loaded'}, ${setTextFromName('cookie.consent-modal.choice-description.functional.title') || 'not yet loaded'}`,
+        }
+        setTimeout(()=>{
+            document.getElementById('technicalspecification').style.display = 'block'
+            document.getElementById('consentdate').textContent = new Date(klaroData.utc)
+            document.getElementById('currentstate').textContent = currentState[`${klaroData.technical}${klaroData.matomo}${klaroData.giosg}`]
+        }, 10)
+    }
+    else {
+        setTimeout(()=>{
+            document.getElementById('consentdate').style.display = 'none'
+            document.getElementById('currentstate').textContent = currentState[`truefalsefalse`]
+        }, 10)
+    }
+}
+”ò¿Ÿ√   √          |°~ü      globalTranslations     ÙáÈ›	      poweredBy      ÜÔo¿      powered by Klaro!      D?Õs      setTextFromName    a@q	      cookie.ok      :V•      not yet loaded     ∂–∞Ë      save   Íá©      cookie.save    ◊sπ!	      acceptAll	      `£}ñ      cookie.consent-modal.accept-all
+    9vË      acceptSelected     :˝~á$      cookie.consent-modal.accept-selected   •~aä      decline    <°.ô      cookie.necessary   ìj-¥      consentNotice      Ñàö      description    +«∫y!      cookie.consent-notice.description      :(	      learnMore      É0∫“       cookie.consent-notice.learn-more   9c›      service    èéI;      required   “E      title      %◊YÌ#      cookie.consent-modal.required.title    „ª 
+      disableAll      ı%t&      cookie.consent-modal.disable-all.title     [c®r,      cookie.consent-modal.disable-all.description   ıú'¸      consentModal   Ba?      cookie.consent-modal.title     ™”∫      
+          ﬁ◊ê¥       cookie.consent-modal.description   ¿É©eE      
+    <div id="technicalspecification" style="display: none">
+              €=Ü?      cookie.consent-modal.cookie.technicalspecification.currentstate     Y˝ãã	      
+        !      cà¥>      cookie.consent-modal.cookie.technicalspecification.consentdate"     îøïN      
+    </div>
+    #   ∞)Ô´!      cookie.consent-modal.choice.title$      ÍoCêö      
+    <button class="accordion" id="technicalSectionButton" style="margin-bottom: 10px;" onclick="expand(technicalSectionButton, technicalSectionContent)">%     ˛ö7      cookie.consent-modal.choice-description.technical.title&    8¿„Çy      </button>     <div class="panel" id="technicalSectionContent" style="display: none">
+    <span style="margin-top: 10px;">'      3yè≠;      cookie.consent-modal.choice-description.technical.sub-title(    ¨h7      </span>
+    <table class="tg">
+        <thead>
+        )    ⁄ÈŸ2      cookie.consent-modal.choice-description.table-head*     [ä{…*      
+        </thead>
+        <tbody>
+        +     ~ûP      setTableRowsFromID,     ôæ"§=      cookie.consent-modal.choice-description.technical.description-      ∂›ê∆      
+        </tbody>
+    </table>     </div>
+    <button class="accordion" id="functionalSectionButton" style="margin-bottom: 10px;" onclick="expand(functionalSectionButton, functionalSectionContent)">.     ‘AuΩ8      cookie.consent-modal.choice-description.functional.title/   "_◊øz      </button>     <div class="panel" id="functionalSectionContent" style="display: none">     <span style="margin-top: 10px;">0     6qZ<      cookie.consent-modal.choice-description.functional.sub-title1   
+Ìw0>      cookie.consent-modal.choice-description.functional.description2     ,≤¯∆      
+        </tbody>
+    </table>
+    </div>
+    <button class="accordion" id="statisticsSectionButton" style="margin-bottom: 10px;" onclick="expand(statisticsSectionButton, statisticsSectionContent)">3     A]õ8      cookie.consent-modal.choice-description.statistics.title4   ZÆÌ:z      </button>     <div class="panel" id="statisticsSectionContent" style="display: none">     <span style="margin-top: 10px;">5     4ûé<      cookie.consent-modal.choice-description.statistics.sub-title6   ÓÇX>      cookie.consent-modal.choice-description.statistics.description7     ÎìÁÃ      
+        </tbody>
+    </table>     </div>
+    <button class="accordion" id="unclassifiedSectionButton" style="margin-bottom: 10px;" onclick="expand(unclassifiedSectionButton, unclassifiedSectionContent)">8   $´‚':      cookie.consent-modal.choice-description.unclassified.title9     ~ΩGf      </button>     <div class="panel" id="unclassifiedSectionContent">     <span style="margin-top: 10px;">:     æŒ®Ø>      cookie.consent-modal.choice-description.unclassified.sub-title;     €ñ¶Å@      cookie.consent-modal.choice-description.unclassified.description<   Êœ\Á)      
+        </tbody>
+    </table>
+    </div>=      s#      klaroConfig>    èæ_„      version?    Üdá	      elementID@      —5yZ      klaroA      ∏/       stylingB    ¢rÿ      themeC      "q˚D      lightD      @»ˇ~      bottomE     d
+¸◊      wideF   ∫ç1Å
+      noAutoLoadG      ‘eë	      htmlTextsH      ÑvƒÏ      embeddedI   CÿãY      groupByPurposeJ     ˇpÖ      storageMethodK      _YNx      cookieL     jŒçÈ
+      cookieNameM     Áûë˚      cookieExpiresAfterDaysN     Ñ<S/	      autoFocusO      gz      mustConsentP    B-G¨      showAcceptAllQ      ¡
+À-      hideDeclineAllR     9◊Û˙      hideLearnMoreS      ;z
+      noticeAsModalT      oÜ©      translationsU   ´øt      servicesV   öfÆ	      technicalW      ìÖ"      purposesX   É˜45      onlyOnceY   3◊õh      giosgZ      K’ù
+      Giosg Chat[     º?Û¡      cookies\    -&U      ^gios.*$]   ~»      i18nextLng/^    #_ÿ      sgid_   Ë€˘      callback`   `˛B      consenta    «Ê€      giosgElementb   ∏OÄ      documentc   ÿ1:Ú      querySelectord      ¨%‡      .wp-exclude-emojie      n†g{      .giosg-chat-buttonf     õâ’Õ      _giosgg     H‰˘      https://service.giosg.comh      DC      createElementi      ú∑»õ      srcj    ﬁΩv«      /live2/k    Ñu2      pushl   XFZ      getElementsByTagNamem   •_œ”
+      parentNoden     ÂL…2      insertBeforeo   ¯2áâ      windowp     9∆˚π$      b624b636-40b7-11e9-8d7e-0242ac110012q   0+QA      locationr   MΩT      reloads     ÍM)≤      matomot     @Í†      Matomo/Piwiku   -·      ^_pk_.*$v   aü‹      klaro.kiprotect.comw    [√	      localhostx      ~˛-¯      piwik_ignorey   _∫ˆ      _paqz   u∂Ç      setConsentGiven{    Å‰kô      setCookieConsentGiven|      Ÿ†©6      rememberConsentGiven}   <‘yÍ      forgetConsentGiven~     .E:∂      forgetCookieConsentGiven   íºoI      optOutÄ     H>	      elementNameÅ    y?˜P      tableContentÇ   uç      [name="É    ı£Ø      "]Ñ     "ÕU      rowTextsÖ   #‹/      getRowsÜ    b»≈e      textContentá     >w      eachRowTextà    hÉÆ      <tr>â   É‰      |||ä    ¢mW`      eachRowã    e&-È      <td class="tg-0pky">å   ˝¡ö∆      sanitizeTextç   ˘É.      </td>é      ∏ë¯      </tr>è      ’‰rî	      rowStringê      ≤cT      regexë      Ù:Îj      \[([^\]]+)\]í   ®—œ~      matchesì    é
+      replaceAllî     ¿·ÜK      \[ï     º”       \]ñ     Êi      sanitizedContentó   à3¿µ      textò   ^æ4#      expandô     ˙U~      buttonö     4W»      contentõ     Ÿ∂z	      classListú      Ogµ      toggleù     å®Px      activeû     Ç⁄Œá	      maxHeightü      e}ü      display†    ,Ω      none°   LsAø      scrollHeight¢   ËIkí	      getCookie£      ^*V∏      ; §     !”T˜      parts•      ¶i4      pop¶    Ç=äO      shiftß      M›ÔÖ      enableFunctionalCookies®    ˙Dcﬂ
+      getManager©     çŸ⁄Ú      updateConsent™      D≠9œ      saveConsents´   Ô{Úí      setKlaroSpecification¨      7Ûø
+      klaroCookie≠    0…¬è	      klaroDataÆ      5ıá∆      parseØ      ˛Q1      console∞    =X˚      log±    æ=∞Œ      currentState≤   QÙ^Ë      truefalsefalse≥     ⁄´æ?      truetruetrue¥   9gìg      truetruefalseµ      ˆ^v      , ∂     ZH&e      truefalsetrue∑      3AtŸ
+      setTimeout∏     t«£      getElementByIdπ     ⁄,π      technicalspecification∫     ü‡˚Å      blockª      ≥W˝≤      consentdateº    µöƒ       utcΩ    6Â±±      currentstateæ   KjqÑ
+      callback/<ø     n¥	      callback/w[o]<¿     Po      setTableRowsFromID/<¡   ~À=D      setTableRowsFromID/</<¬     ë≈yÑ      setKlaroSpecification/<        *                  Ô%,â                                                                                                                                         	                                   
+                                                                                                                                                                                                                                                       ≥Oåc
+   
+   
+      =  +  êÖ  ê  êå  êò  ê¢  êß  ê´  ê             Ä           Å  Pà   Ñ               á               ä               è              ê  í               Ä           à   ñ               ó               ô  ö               r           B  §                                           ¨           ≠  P±  P                                             `             a              w `t  f  s  o `h  e  n                                `    Ø¬0∞\      u      u      ë     IÙ$KEÆ˙ö         ≤  ≥  ¥  ∂  	   -             
+             
+            
+                    
+            
+           d    >  ?  A  F  G  H  I  J  L  M  i   N  O    P  Q  R  S  T  U           B               C      D      E        “ ó  „          r  i     W    X     #    r  i     W  [  _    	   -   r  i     W  [  _      X  á&’™ç!´!   ê	     ãâåQê	                  Ì        ⁄   ∑	   9
+      <   ª       s ù   ó   ﬂ   ó   <   ª       s ù   ó
+   ﬂ   ó
+   <   ª       s ù   ó   ﬂ   ó   <   ª       s ù   ó   ﬂ   ó   <   ª       s ù   ó   ﬂ   ó   <   9   ª       s ù   ó   ﬂ   ó   <   ª       s ù   ó   ﬂ   ó   <   <   9   9    ª    !   s ù   ó&   ﬂ   ó&   <"   <#   9$   ª    %   s ù   ó,   ﬂ   ó,   <"   ª    &   s ù   ó0   ﬂ   ó0   <   <'   <(   9)   ª    *   s ù   ó7   ﬂ   ó7   <"   +   ª    ,   s ù   ó;   ﬂ   ó;   1&-   &ª    .   s ù   ó@   ﬂ   ó@   1&/   &ª    0   s ù   óE   ﬂ   óE   1&1   &ª    2   s ù   óJ   ﬂ   óJ   1&3   &ª    4   s ù   óO   ﬂ   óO   1&5   &ª    6   s ù   óT   ﬂ   óT   1&7   &ª    8   s ù   óY   ﬂ   óY   1&9   &ª:    ;   s ù   ó^   ﬂ   ó^   1&<   &ª    =   s ù   óc   ﬂ   óc   1&>   &ª    ?   s ù   óh   ﬂ   óh   1&7   &ª    8   s ù   óm   ﬂ   óm   1&9   &ª:    @   s ù   ór   ﬂ   ór   1&A   &ª    B   s ù   ów   ﬂ   ów   1&C   &ª    D   s ù   ó|   ﬂ   ó|   1&7   &ª    8   s ù   óÅ   ﬂ   óÅ   1&9   &ª:    E   s ù   óÜ   ﬂ   óÜ   1&F   &ª    G   s ù   óã   ﬂ   óã   1&H   &ª    I   s ù   óê   ﬂ   óê   1&7   &ª    8   s ù   óï   ﬂ   óï   1&9   &ª:    J   s ù   óö   ﬂ   óö   1&K   &<   <L    	   ﬂ∑M   9N   <O   P   <Q   :R   :S   <T   <U   <V   <W   <X   <Y   Z   <[   P   <\   m<]   <^   <_   <`   <   <a   <b   <c   <d   9e   ª	   <f   ª	   <g   ª	   <h   ª	   <i   <j   h   9k   l   <m   <^   ª    4   s ù   ó≈   ﬂ   ó≈   <"   h   ª    4   s ù   ó    ﬂ   ó    i    <n   <#   <o   i    9p   q   <m   <^   r   <"   h   ª    =   s i    <n   h   h   ls   i    i    t   i   u   i   <v   mw   <x   <#   i   9y   z   <m   <^   {   <"   h   ª    B   s ù   ó‚   ﬂ   ó‚   i    <n   h   h   l|   i    }   i   ~   i   i    h   l   i    }   i   Ä   i   i   Å   i   <v   mÇ   <x   <#   <É   <o   i   <Ñ    M   ﬂ•
+`*[ù [ù [ù [ù 
+[ù%Pù P¢0%%P¢@%Pù Pß0%Pù%[†@[† [†@[† Ä  ú[†@'[†@"[†@%[†@)Ä  ü[†@+'[†@.[†@1[†@5Ä  ü[†@7'[†@:[†@=[†@AÄ  •[†@C'[†@F[†@I[∞@OeEQ&*%	OV&&&&**(&&&&&&&Ff
+
+
+/%*&Pù [¢ &Ko	%*&*[-%OyJÄ  ì 	%*&*[¢ %£ £ JÄ  ´&&ñ0Ä P  âpu‚  µ                       ∞±   ﬂª   ·J   ‰   s ö#   ó   ª   ·J   ‰   s ô   ó   ª   ·J   ‰   s ó
+   ±   ﬂº  ö(   ó   m    ª   ª      w ﬂô(   ó   æ   ö   ó   ª	   ·J
+   ‰w  ﬂó   “• &$`ë 	Pû .Pû .P-`-`F
+ˇˇˇ˜P `.`	PJPÄÄ         ¥   ˇˇˇˇT  G‘hT  Î   	                    Ω  Œ   ﬂ   Õ   ﬂ   Œ   ﬂ   Õ  ﬂº ·J   ‰æ   s Õ  ﬂæ  L   ﬂæ  æ     &º &L   ﬂ¡   ¡   ¡   ¡   Kù   ó   ﬂm   ó   Nﬂ¡   ¡   Kº L	   ﬂ¡   ¡   Kæ  L
+   ﬂº ·J   ‰æ   s KÕ  ﬂæ  J   ·J   ‰æ  æ  w ﬂ•)!`*!`+!`J`
+ˇˇˇÚP(`+`*`¨@`î `ï `
+ˇˇˇÎP*`ê ˇˇˇP$PÄÄ|   áú|ä|   K                        ‹Õ   ﬂ¡   ¡   K¡   ¡   KJ   ù   ó   ﬂh    ó   L   ·J   ‰æ   w ﬂ•&`º ˇˇˇ˚P$PÄ<  Œ¥Ù&<  ◊                         ª      ö∆   ó   º  öt   ó   ª   ·J   ‰h      i    w ﬂª   ·J   ‰h      i    w ﬂª   ·J   ‰h      i    8"i   w ﬂôH   ó   ª   ·J   ‰h      i    w ﬂª   ·J   ‰h      i    w ﬂó   • `ï `/`
+ˇˇˇ˚P$`
+ˇˇˇ˚P$`
+ó ˇˇˇ˚P `
+ˇˇˇ˚P$`
+ˇˇˇ˚PIPË   +≠Õ»   s                 
+      –   ∞±   ±  ﬂ   ≥   ﬂª   ·J   ‰   º  1&   &s ±   ﬂª    æ   J   s ±  ﬂæ  ·J	   ‰m
+   w ﬂ¡   §—•—• /`+`
+ˇˇˇËP(`	ˇˇˇˇPH`ˇˇˇ¯PD`TÄË         m   ˇˇˇˇ    p          à   –[…à   L                         ¡   µ      &.Œ   ﬂº  ·J   ‰   s ·J   ‰m   w ﬂ¡      &.Œ   ﬂ• 	`ó 	`P
+ˇˇˇ¯PD	`í PÄ`   Pw`   ,                         ¡   µ      ª    º  s 1&   &&.Œ   ﬂ• `'ˇˇˇÛPì 	PÄÄ4  Cé®à  ¶                       $∞±   ±  ±  ﬂl   ±  ﬂh    ±  ﬂ ±   ﬂº  ·J   ‰      s ·J   ‰      s Ã  ﬂò   æ  ·J   ‰º  s Õ   ö$   ó	   æ  ·J	   ‰æ   Kw ﬂôƒˇˇˇó   æ  §“•“• .`*`&`î Pî PGfˇˇˇ˚Pì 	`ˇˇˇ˚PN	`TÄÄÄ4  $         •   ˇˇˇˇ    £                 W   A   ¥   !ït◊î   N                       ∞±   ±  ﬂª   ·J   ‰   º  1&   &s ±   ﬂª    æ   J   s ±  ﬂæ  §“•“• *`
+ˇˇˇËP(`	ˇˇˇˇP(`TÄÄ¥          M   ˇˇˇˇ    K          \   ˚q-‚\   -                         º  ·J   ‰      s ·J   ‰      s ¢• `î Pî PQÄ‘   Ü´3r‘   î                         º  J   ·J   ‰   w ﬂº J   J   ö1   ó   º J   L   ﬂº J      L   ﬂô=   ó
+   º J      L   ﬂº J   º J	    &
+   &L   ﬂó   • `î P$	`ó 	`/`ù `ì 	`•0	PÄÙ   äï-î‘   à                       ∞±   ±  ﬂ   ª   J   &±   ﬂæ   ·J   ‰   º  &   &s ±  ﬂæ  J   ö4   ó
+   æ  ·J   ‰s  ·J   ‰	   s ·J
+   ‰s  §“•ó   “• *`ê `
+ˇˇˇÛP(	`ñ `PP
+PYÙ          á   ˇˇˇˇ    Ä          à   àÕü˚à   K                          ª   ·J   ‰s  ·J   ‰   w ﬂª   ·J   ‰s  ·J   ‰w  ﬂª   ·J   ‰w  ﬂ• `Pê P$`P
+P$`	PPÄL  €…¿v,  ö                *       ∞±   ﬂª       s ±   ﬂæ   ö`  ó   –   ª   ·J   ‰ª    æ   s s ≥   ﬂª   ·J	   ‰¡   w ﬂ9
+   ª       s ù   ó   ﬂ   ó   <   ª       s ù   ó   ﬂ   ó   <   ª       s ù   ó   ﬂ   ó   1   &ª       s ù   ó   ﬂ   ó   1&<   ª       s ù   ó    ﬂ   ó    1   &ª       s ù   ó$   ﬂ   ó$   1&<   ≥   ﬂª    m   
+w ﬂ—ô   ó(   ª    m   
+w ﬂó*   “• &`	P(	`%`ˇˇˇÌPˇˇˇ˙P)	`ˇˇˇ¸P$`%Pù Pù  [ü c[ü  [ü c[•@	`5BP? 	`5BP:PÄÄÄL         ô  ˇˇˇˇ   ,   L         )Ìy!   £                          ª   ·J   ‰   s J      L   ﬂª   ·J   ‰   s ª   Ä¡   µ   J	   „  Å L
+   ﬂª   ·J   ‰   s ¡   µ   ¡   J   1¡   J   1&¡   J   1&KL
+   ﬂ• `ë 	Pì `ë 	P	5ì ˇˇˇ˜P)`ë 	P=ì 	PÄÄÄÄ   ‡™“õÄ   J                          ª   ·J   ‰   s J      L   ﬂª   ·J   ‰   s ª   	   KL
+   ﬂ• `ë 	Pì `ë 	Pî 	PÄÄ3ıÿ  `ã  å  ç    `à  œ  â  ∏     pé    `  `ã   b  c  Ç  É  Ö  Ü  ∏     p  `  `  Pì  î  <  ï  >  ú   k    `  `b  c  Ç  É  å  Ü  	  `ì  [  <  ]  >  
+  `õ  ú  ù  ˛  û  †  ü  ã   °  a   `  `£  b  K  œ  =  @  •  ;  ¶    `@  ®  ©  Y  ™  q  r    `b  ∏  π  ˛  ∫  ü  ª  u  º  Ü  Ω  V  s  Y    `b  ∏  ª  ˛  †  ü  Ω  ±  ≤  Ü    `  `¢  @    `t  Æ  h   Ø  ∞     @      ≤  	  ≥  %  µ  3  ¥  .  ∂  ∑    p  p  `Œ k    `◊  f  g  h     j  i    pÃ — l  m  n    `  `b  c  d  e    po  p  q  r    `y  f  k  z  {  |  }  ~     `  p  p	  p
+  p  p  p  p  p     @               	      
+        @            @  @        @          @             !  "  #  $  %  &  '  (  )  *  +  ,  -  .  /  0  1  2  3  4  5  6  7  8  9  :  ;  <    =    @>  @  ?    @	  @B  A  F  G  H  I  K  J  L  M  i   N  O  P  Q  R  S  
+  @“ ó  „ T    @V  r  W  X    @Y  Z     P]  ^  [    p_    @s  t    P/  v    Pw  x    p  U  ˇXÑ•   Ö              ë      _        É      æ        Ä      ø        ú   	   _              +              ¿      !        ¡      !    
+   Ö                       (      å        .      ò        9      ¢        D      ß        f      ´        L      ¬      ! [      ¬      ! ùH©¿      ÷-      ÷-                 ©  /  °  /  z             Äß  U  ü  U  }                 Å    Å  Ö   0               ˆ   ˝  ˆ   †              }!  >#  b!  >#  ≥              3"  !#  3"  !#  ∏               è"  ¯"  è"  ¯"  ∫   *            Q#  g$  A#  g$  √               Å$  /%  i$  /%  œ               F%  é%  1%  é%  ’               ü%  ª&  ê%  ª&  Ÿ               œ&  t'  Ω&  t'  ‰               ñ'  (  v'  (  Í   !            ,(  ’-  (  ’-                  ò+  ‰,  ò+  ‰,  ˚                -  »-  -  »-               5°›ö¬ÇYU∆AU     gáíMgáíMG∆CgâOÓ   V    O^partitionKey=%28https%2Chelsinki.fi%29,:https://helda.helsinki.fi/klaro/js/config.js necko:classified 1 strongly-framed 1 security-info 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 request-method GET response-head HTTP/1.1 200 OK
+Last-Modified: Tue, 24 Sep 2024 08:12:42 GMT
+ETag: "2dd6-622d911d71541"
+Accept-Ranges: bytes
+Content-Length: 11734
+Content-Type: application/javascript
+Date: Thu, 09 Jan 2025 18:29:03 GMT
+Server: Apache/2.4.37 (Red Hat Enterprise Linux) OpenSSL/1.1.1k
+ original-response-headers Date: Tue, 12 Nov 2024 15:40:54 GMT
+Server: Apache/2.4.37 (Red Hat Enterprise Linux) OpenSSL/1.1.1k
+Last-Modified: Tue, 24 Sep 2024 08:12:42 GMT
+ETag: "2dd6-622d911d71541"
+Accept-Ranges: bytes
+Content-Length: 11734
+Keep-Alive: timeout=5, max=100
+Connection: Keep-Alive
+Content-Type: application/javascript
+ ctid 2 uncompressed-len 0 net-response-time-onstart 204 net-response-time-onstop 211 alt-data 1;11734,javascript/moz-script-bytecode-20241209150345-8l alt-data-from-child 1   °y

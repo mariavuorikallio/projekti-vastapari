@@ -1,0 +1,25 @@
+[+0.00s] DEBUG: simple-scan.vala:2016: Starting /usr/bin/simple-scan 46.0, PID=116500
+[+0.01s] DEBUG: _g_io_module_get_default: Found default implementation dconf (DConfSettingsBackend) for ‘gsettings-backend’
+[+0.02s] DEBUG: Using cross-namespace EXTERNAL authentication (this will deadlock if server is GDBus < 2.73.3)
+[+0.02s] DEBUG: Using cross-namespace EXTERNAL authentication (this will deadlock if server is GDBus < 2.73.3)
+[+0.06s] CRITICAL: g_application_set_application_id: assertion 'application_id == NULL || g_application_id_is_valid (application_id)' failed
+[+0.07s] CRITICAL: g_variant_new_string: assertion 'string != NULL' failed
+[+0.08s] DEBUG: _g_io_module_get_default: Found default implementation gvfs (GDaemonVfs) for ‘gio-vfs’
+[+0.19s] DEBUG: Using style /org/gnome/Adwaita/styles/defaults-light-yaru-default.css
+[+0.24s] DEBUG: app-window.vala:1436: Loading state from /home/vuomaria/.config/simple-scan/state
+[+0.24s] WARNING: scanner.vala:1739: Unknown ScanType: . Please report this error.
+[+0.24s] DEBUG: app-window.vala:1415: Restoring window to 600x400 pixels
+[+0.33s] DEBUG: scanner.vala:1619: sane_init () -> SANE_STATUS_GOOD
+[+0.33s] DEBUG: scanner.vala:1625: SANE version 1.2.1
+[+0.33s] DEBUG: scanner.vala:1686: Requesting redetection of scan devices
+[+0.33s] DEBUG: scanner.vala:863: Processing request
+[+0.48s] DEBUG: app-window.vala:1512: Saving state to /home/vuomaria/.config/simple-scan/state
+[+5.45s] DEBUG: app-window.vala:1512: Saving state to /home/vuomaria/.config/simple-scan/state
+[+5.45s] DEBUG: autosave-manager.vala:209: Deleting autosave records
+[+5.45s] WARNING: autosave-manager.vala:222: Failed to delete autosaves: Error opening directory “/home/vuomaria/.cache/simple-scan/autosaves”: No such file or directory
+[+5.45s] DEBUG: scanner.vala:1807: Stopping scan thread
+[+8.90s] DEBUG: scanner.vala:348: sane_get_devices () -> SANE_STATUS_GOOD
+[+8.90s] DEBUG: scanner.vala:863: Processing request
+[+8.91s] DEBUG: scanner.vala:1818: sane_exit ()
+[+8.91s] DEBUG: app-window.vala:1512: Saving state to /home/vuomaria/.config/simple-scan/state
+[+8.92s] CRITICAL: app_window_set_scan_devices: assertion 'self != NULL' failed

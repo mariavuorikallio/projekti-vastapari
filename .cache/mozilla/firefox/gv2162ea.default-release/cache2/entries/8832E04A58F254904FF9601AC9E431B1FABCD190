@@ -1,0 +1,248 @@
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+
+
+
+
+
+
+
+	
+	<html>
+<head>
+<link rel="stylesheet" type="text/css"
+	href="/palvelutuottajarekisteri/theme/stylesheet_uusi.css" title="Style">
+<meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-15">
+<meta name="GENERATOR" content="Rational Application Developer">
+<META HTTP-EQUIV="Cache-Control" CONTENT="no-cache">
+<META HTTP-EQUIV="Cache-Control" CONTENT="no-store">
+<META HTTP-EQUIV="Cache-Control" CONTENT="must-revalidate">
+<META HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<META HTTP-EQUIV="Expires" CONTENT="-1">
+
+<meta http-equiv="refresh"
+	content="1795;url=/palvelutuottajarekisteri?lang=FI">
+<script language="JavaScript" type="text/javascript">
+<!--
+	
+// -->
+</script>
+<link rel="stylesheet" href="/palvelutuottajarekisteri/theme/script/lightbox.css" type="text/css" />
+<script type="text/javascript" src="/palvelutuottajarekisteri/theme/script/prototype.js"></script>
+<script type="text/javascript" src="/palvelutuottajarekisteri/theme/script/browserdetect.js"></script>
+<script type="text/javascript" src="/palvelutuottajarekisteri/theme/script/preventdoublesubmit.js"></script>
+<script type='text/javascript'> new PreventDoubleSubmit('Odota hetki. Tietoja haetaan.');</script> 
+<script type="text/javascript">
+	var lahetetty = false;
+	function onko_lahetetty() {
+		if (lahetetty)
+			return false;
+		return (lahetetty = true);
+	}
+	function onko_js() {
+		var no = document.getElementById("nonjavascript");
+		var yes = document.getElementById("javascript");
+		no.style.display = "none";
+		yes.style.display = "inline";
+	}
+	function toggleKuntalista(auki, kiinni) {
+		var no = document.getElementById(kiinni);
+		var yes = document.getElementById(auki);
+		no.style.display = "none";
+		yes.style.display = "inline";
+	}
+	
+</script>
+
+
+<title>Kuntoutuksen palveluntuottajien haku</title>
+
+</head>
+<body onload="onko_js();">
+	<div id="padding" class="iepadding">
+		<form id="layout_form" name="layout_form" method="post" action="/palvelutuottajarekisteri/alku/haku.faces" enctype="application/x-www-form-urlencoded" class="form"><table id="layout_form:layout_panelGridLogorivi" width="100%" class="kehikkoLogoRivi"><tbody>
+<tr><td class="valilehti1Sarake"><img id="layout_form:layout_graphicImageExLogo" src="/palvelutuottajarekisteri/theme/img/kela_logo.gif" alt="" class="graphicImageEx" /></td><td class="valilehti2Sarake"></td></tr>
+</tbody>
+</table><input type="hidden" name="layout_form_SUBMIT" value="1" /><input type="hidden" name="javax.faces.ViewState" id="javax.faces.ViewState" value="eYBSscMvY8TEPhBbqoLEpffdTZ1g9TELSmAF0orv8QRDKktW1/SnAUOb71uA3NLykfrG406Bh9uGB69v835gP3aqIpOELWlalGdNN3+mt/AxbjAPxwWWBdOKhgHLLoJjf+S4X7HRyyY24q0ZRk9jTX2ux28=" /></form>
+
+		<div id="nonjavascript" style="display: inline">
+			<p>
+				<br>
+				<span id="layout_outputTextJavaScriptTarkistus" class="outputText">Tarkistetaan selaimen Javascript-tuki.</span>
+				<br>
+				<span id="layout_outputTextJavaScriptPuuttuu" class="outputText">Jos t&auml;m&auml; sivu j&auml;&auml; n&auml;kyviin, selaimessa ei ole Javascript-tukea tai se on asetettu pois p&auml;&auml;lt&auml;. Kuntoutuksen palveluntuottajien haku ei toimi ilman Javascript-tukea.</span>
+			</p>
+		</div>
+		<div id="javascript" style="display: none">
+			
+				
+
+				<script type="text/javascript">
+				
+					function avaaIkkuna() {
+						// Haetaan valikosta valittu arvo
+						var arvo = document
+								.getElementById('form1:selectOneMenuToimenpide').value;
+
+						//Avataan ikkuna ainoastaan jos k&#228;ytt&#228;j&#228; valitsi arvon Kurssi, ASLAK tai TYK-toiminta
+						if (arvo == 'Kurssi' || arvo == 'ASLAK'
+								|| arvo == 'Kurs') {
+							window
+									.open(
+											'https://asiointi.kela.fi/kz_app/KZInternetApplication?lang=fi&amp;yleiskysely_hae=true',
+											"",
+											"width=800,height=500,top=100,left=300,status=1,toolbar=1,menubar=1,location=1,scrollbars=1,directories=1,resizable=1",
+											true);
+						}
+					}
+
+					function avaaOhje(linkki) {
+						
+						window
+								.open(
+										linkki,
+										"",
+										"width=800,height=500,top=100,left=300,status=1,toolbar=1,menubar=1,location=1,scrollbars=1,directories=1,resizable=1",
+										true);
+
+					}
+					
+					
+					function paivitaLakiperustevalinta() {
+						document.getElementById("form1:button1").click();
+						return false;
+					}
+					function avaaLinkki(linkki){
+						window.open(linkki,"","",true);
+					}
+				
+				</script>
+				
+				<form id="form1" name="form1" method="post" action="/palvelutuottajarekisteri/alku/haku.faces" enctype="application/x-www-form-urlencoded" onsubmit="return onko_lahetetty();" class="form"><table width="100%" class="panelGrid"><tbody>
+<tr><td><table width="100%"><tbody>
+<tr><td><table width="100%" class="panelGrid"><tbody>
+<tr class="lomakeRivi"><td class="lomakeVasenSarakeMiddle"><span id="form1:otsikko" class="otsikkoKuvalla">Kuntoutuksen palveluntuottajien haku&nbsp;</span><a href="javascript:avaaOhje('https://www.kela.fi/documents/20124/3666806/kuntoutuksen-palveluntuottajien-haku.pdf/220b5bc7-f4b1-6af1-72e5-0a323087d979?t=1667225015545');" class="outputLinkEx"><img src="/palvelutuottajarekisteri/theme/img/help.png" class="graphicImageEx" /></a><script type="text/javascript" src="/palvelutuottajarekisteri/javax.faces.resource/oamSubmit.js.faces?ln=org.apache.myfaces"><!--
+
+//--></script><a href="#" onclick="return myfaces.oam.submitForm('form1','form1:vaihdaLocaleCL');" id="form1:vaihdaLocaleCL"><span class="outputtextLocale">P&#229; svenska</span></a>
+										<br>
+										<div id="pakolliset" class="infoMessage">
+											<!-- <img src="/palvelutuottajarekisteri/theme/img/info2.png" class="icon-s" /> -->
+											Pakolliset tiedot on merkitty t&#228;hdell&#228; (*)
+										</div>
+										<div id="omavayla" class="infoMessage">
+											<!-- <img src="/palvelutuottajarekisteri/theme/img/info2.png" class="icon-s" /> -->
+											Hae seuraavien palvelujen palveluntuottajaa:
+											<div class="nappiWrapper">
+												<a href="javascript:avaaLinkki('https://www.kela.fi/hae-palveluntuottajaa');" style="text-align: left;" class="nappi">Moniammatillinen yksil&ouml;kuntoutus (harkinnanvarainen)	
+													<br>	
+													Laku-perhekuntoutus   	
+													<br>
+													Oma-v&auml;yl&auml; -kuntoutus
+													<br>
+													Neuropsykologinen kuntoutus (harkinnanvarainen)</a>
+											</div>
+										</div>	
+									</td><td class="lomake1SarakeViimeinenOikeaMiddle"></td></tr>
+</tbody>
+</table></td></tr>
+<tr><td><label class="errorMessage" for="form1:otsikko"></label></td></tr>
+</tbody>
+</table></td></tr>
+<tr><td><table width="100%" class="panelGridTaustaKeltainen"><tbody>
+<tr><td class="lomakeSarake33pros"><span class="otsikko">Etsin palveluntuottajaa, jolla on oikeus antaa *</span></td><td class="lomakeSarake33pros"></td><td class="lomakeSarake33prosBottom"></td></tr>
+<tr><td class="lomakeSarake33pros"><label class="errorMessage" for="form1:radioLakiperuste"></label><table class="selectOneRadio" id="form1:radioLakiperuste">		<tr><td><input id="form1:radioLakiperuste:0" type="radio" name="form1:radioLakiperuste" value="3" onclick="paivitaLakiperustevalinta();" /><label for="form1:radioLakiperuste:0"> vaativaa l&auml;&auml;kinn&auml;llist&auml; kuntoutusta</label></td></tr>		<tr><td><input id="form1:radioLakiperuste:1" type="radio" name="form1:radioLakiperuste" value="K" onclick="paivitaLakiperustevalinta();" /><label for="form1:radioLakiperuste:1"> kuntoutuspsykoterapiaa</label></td></tr>		<tr><td><input id="form1:radioLakiperuste:2" type="radio" name="form1:radioLakiperuste" value="4" onclick="paivitaLakiperustevalinta();" /><label for="form1:radioLakiperuste:2"> harkinnanvaraista kuntoutusta</label></td></tr>		<tr><td><input id="form1:radioLakiperuste:3" type="radio" name="form1:radioLakiperuste" value="2" onclick="paivitaLakiperustevalinta();" /><label for="form1:radioLakiperuste:3"> ammatillista kuntoutusta</label></td></tr></table></td><td class="lomakeSarake33pros"><table id="form1:j_id_jsp_1457022691_40" class="panelBox"><tr><td><table id="form1:j_id_jsp_1457022691_41" ><tbody >
+<tr ><td ><a href="javascript:avaaOhje('http://www.kela.fi/vaativa-laakinnallinen-kuntoutus');" class="outputLinkEx"><img src="/palvelutuottajarekisteri/theme/img/help.png" height="21" width="21" class="graphicImageEx" /></a></td>
+</tr>
+<tr ><td ><a href="javascript:avaaOhje('http://www.kela.fi/kuntoutuspsykoterapia');" class="outputLinkEx"><img src="/palvelutuottajarekisteri/theme/img/help.png" height="21" width="21" class="graphicImageEx" /></a></td>
+</tr>
+<tr ><td ><a href="javascript:avaaOhje('http://www.kela.fi/moniammatillinen-yksilokuntoutus');" class="outputLinkEx"><img src="/palvelutuottajarekisteri/theme/img/help.png" height="21" width="21" class="graphicImageEx" /></a></td>
+</tr>
+<tr ><td ><a href="javascript:avaaOhje('http://www.kela.fi/ammatillinen-kuntoutus');" class="outputLinkEx"><img src="/palvelutuottajarekisteri/theme/img/help.png" height="21" width="21" class="graphicImageEx" /></a></td>
+</tr>
+</tbody>
+</table>
+</td></tr></table></td><td class="lomakeSarake33prosBottom"><input id="form1:button1" name="form1:button1" type="submit" value="Submit" style="visibility:hidden" /><label id="form1:outputNimihakuLabel" class="errorMessage" for="form1:inputTextNimihaku"></label><span class="alaOtsikko"><br>Haku palvelutuottajan nimell&#228;&nbsp;</span><a href="javascript:avaaOhje('https://www.kela.fi/documents/20124/3666806/haku-palveluntuottajan-nimella.pdf/40bfdcf8-9b2b-ced0-e301-6f12c9c187e1?t=1667224987754');" class="outputLinkEx"><img src="/palvelutuottajarekisteri/theme/img/help.png" height="21" width="21" class="graphicImageEx" /></a>
+											<br>
+										<input id="form1:inputTextNimihaku" name="form1:inputTextNimihaku" type="text" value="" maxlength="30" class="inputTextPuolitoistaSaraketta" /></td></tr>
+</tbody>
+</table></td></tr>
+<tr><td><table width="100%" class="panelGridTaustaKeltainen"><tbody>
+<tr><td class="lomakeSarake52pros"><span class="otsikko">Asuinkunta *</span></td><td class="lomakeSarake15pros"></td><td class="lomakeSarake33pros"></td></tr>
+<tr><td class="lomakeSarake52pros"><label class="errorMessage" for="form1:selectOneMenuKunta"></label>
+
+<script type="text/JavaScript" language="JavaScript" src="/palvelutuottajarekisteri/.ibmjsfres/hxclient_core_v3_1_12.js"></script>
+
+<script type="text/JavaScript" language="JavaScript" src="/palvelutuottajarekisteri/.ibmjsfres/hxclient_S_v3_1_12_fi.js?viewLocale=fi_FI"></script>
+<script type="text/JavaScript" language="JavaScript">
+if (hX_6) hX_6.setResourceServer("/palvelutuottajarekisteri/.ibmjsfres");
+if(hX_6 && hX_6.setLocale) hX_6.setLocale("fi_FI");
+
+</script><select id="form1:selectOneMenuKunta" name="form1:selectOneMenuKunta" size="1" class="selectOneMenuPuolitoistaSaraketta" disabled="disabled"></select></td><td class="lomakeSarake15pros"></td><td class="lomakeSarake33pros"></td></tr>
+</tbody>
+</table></td></tr>
+<tr><td><table width="100%" class="panelGridTaustaKeltainen"><tbody>
+<tr class="lomakeRivi"><td class="lomakeSarake33pros"><span class="otsikko">Haettava kuntoutus</span><span class="otsikko"> (<a target='_blank' href='https://asiointi.kela.fi/kz_app/KZInternetApplication'>Kurssit l&#246;yd&#228;t kuntoutuskurssihausta</a>)</span></td><td class="lomakeSarake33pros"></td><td class="lomakeSarake33pros"></td></tr>
+<tr class="lomakeRivi"><td class="lomakeSarake33pros"><span class="alaOtsikko">Kuntoutusmuoto *</span></td><td class="lomakeSarake33pros"><span class="alaOtsikko"> </span></td><td class="lomakeSarake33pros"><span class="alaOtsikko"> </span></td></tr>
+<tr class="lomakeRivi"><td class="lomakeSarake33pros"><label class="errorMessage" for="form1:selectOneMenuToimenpide"></label><select id="form1:selectOneMenuToimenpide" name="form1:selectOneMenuToimenpide" size="1" class="" disabled="disabled"></select><input id="form1:button2" name="form1:button2" type="submit" value="Submit" style="visibility:hidden" /></td><td class="lomakeSarake33pros">
+		<!-- alla infopallo mutt miten saan sen n&#228;ytille vain silloin kun pit&#228;&#228;??-->
+				  
+									<input id="form1:button3" name="form1:button3" type="submit" value="Submit" style="visibility:hidden" /></td><td class="lomakeSarake33pros"><input id="form1:button7" name="form1:button7" type="submit" value="Submit" style="visibility:hidden" /></td></tr>
+</tbody>
+</table></td></tr>
+<tr><td><table width="100%" class="panelGridTaustaKeltainen"><tbody>
+<tr><td><span class="otsikko">Palveluntuottajan kielitaito ja kommunikaatiokeinot</span></td></tr>
+<tr><td><select id="form1:selectOneMenuKommunikaatio" name="form1:selectOneMenuKommunikaatio" size="1" class="selectOneMenuPuolitoistaSaraketta" disabled="disabled"></select></td></tr>
+</tbody>
+</table></td></tr>
+<tr><td>&nbsp;</td></tr>
+<tr><td><table width="100%" class="panelGrid"><tbody>
+<tr class="lomakeRivi"><td class="lomake2Saraketta"><input id="form1:haeButton" name="form1:haeButton" type="submit" value="Hae" onclick="var cf = function(){avaaIkkuna();};var oamSF = function(){};return (cf.apply(this, [])==false)? false : oamSF.apply(this, []); " class="nappi" />&nbsp;&nbsp;<input id="form1:tyhjennaButton" name="form1:tyhjennaButton" type="submit" value="Tyhjenn&auml;" class="nappiSecondary" /></td><td class="lomake1SarakeViimeinenOikea"><input id="form1:lopetaButton" name="form1:lopetaButton" type="submit" value="Lopeta" class="nappiSecondary" /></td></tr>
+</tbody>
+</table></td></tr>
+</tbody>
+</table><input type="hidden" name="form1_SUBMIT" value="1" /><input type="hidden" name="javax.faces.ViewState" id="javax.faces.ViewState" value="eYBSscMvY8TEPhBbqoLEpffdTZ1g9TELSmAF0orv8QRDKktW1/SnAUOb71uA3NLykfrG406Bh9uGB69v835gP3aqIpOELWlalGdNN3+mt/AxbjAPxwWWBdOKhgHLLoJjf+S4X7HRyyY24q0ZRk9jTX2ux28=" /></form>
+<script type="text/javascript" src="/palvelutuottajarekisteri/.ibmjsfres/hxclient_be_v3_1_12.js"></script>
+<script type="text/javascript">
+
+hX_6.addBehavior("form1:selectOneMenuToimenpide", "onchange", new hX_6.JSFBehaviorGeneric("action:submit", "target:form1:button2"));
+hX_6.onPageLoad();</script>
+		</div>
+	</div>
+</body>
+<script language="javascript">
+	
+// -->
+</script>
+<head>
+<META HTTP-EQUIV="PRAGMA" CONTENT="NO-CACHE">
+<META HTTP-EQUIV="Expires" CONTENT="-1">
+
+<link rel="stylesheet" type="text/css" title="Style"
+	href="../theme/stylesheet.css">
+
+</head>
+	</html>
+
+UUv@!           g¢GÂëu       `    O^partitionKey=%28https%2Ckela.fi%29,:https://asiointi.kela.fi/palvelutuottajarekisteri/?lang=FI strongly-framed 1 security-info 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 request-method GET response-head HTTP/1.1 200 OK
+pragma: no-cache
+cache-control: no-cache, no-store, must-revalidate
+expires: 0
+content-type: text/html; charset=ISO-8859-15
+content-language: fi-FI
+date: Wed, 15 Jan 2025 11:56:52 GMT
+ original-response-headers pragma: no-cache
+cache-control: no-cache
+cache-control: no-store
+cache-control: must-revalidate
+expires: 0
+content-type: text/html; charset=ISO-8859-15
+content-language: fi-FI
+set-cookie: oam.Flash.RENDERMAP.TOKEN=-nqy4edmn9; Path=/palvelutuottajarekisteri; Secure; HttpOnly
+date: Wed, 15 Jan 2025 11:56:52 GMT
+Set-Cookie: KelaAA0117f891=018411a7622baec86344317594426f7778db265eb9d204999d2d9addf183776c9174b8908eeecdfe6c12a9e52b0b15405f6e6614a4; Path=/; Secure; HttpOnly; ;SameSite=Lax
+Set-Cookie: KelaAA013ef725=018411a7624e7ed4dd034a782feff20c667cb76652c76277a89773879c863e9adcbb4e1abb68661f055b91ece0b628e83e0040775d307e8a260c040417048e4fac411cd83ed385556b7870e9d5ac038e98f5b58270; path=/palvelutuottajarekisteri; HttpOnly; Secure
+Transfer-Encoding: chunked
+ ctid 1 uncompressed-len 0 net-response-time-onstart 28 net-response-time-onstop 40   8x

@@ -1,0 +1,2631 @@
+browzine.primo = (function() {
+  var libraryId = browzine.libraryId;
+  var api = libraryIdOverride(urlRewrite(browzine.api));
+  var apiKey = browzine.apiKey;
+
+  function urlRewrite(url) {
+    if (!url) {
+      return;
+    } else if (url.indexOf("staging-api.thirdiron.com") > -1) {
+      return url;
+    }
+
+    return url.indexOf("public-api.thirdiron.com") > -1 ? url : url.replace("api.thirdiron.com", "public-api.thirdiron.com");
+  };
+
+  function libraryIdOverride(url) {
+    var override = url;
+    var libraryId = browzine.libraryId;
+
+    if (libraryId) {
+      var baseUrl = "https://public-api.thirdiron.com/public/v1/libraries/{libraryId}";
+      override = baseUrl.replace(/{libraryId}/g, libraryId);
+    }
+
+    return override;
+  };
+
+  function getResult(scope) {
+    return scope.result || scope.item;
+  };
+
+  function isArticle(scope) {
+    var validation = false;
+    var result = getResult(scope);
+
+    if (result && result.pnx) {
+      if (result.pnx.display && result.pnx.display.type) {
+        var contentType = result.pnx.display.type[0].trim().toLowerCase();
+
+        if (contentType.indexOf("article") > -1) {
+          validation = true;
+        }
+      }
+    }
+
+    return validation;
+  };
+
+  function isJournal(scope) {
+    var validation = false;
+    var result = getResult(scope);
+
+    if (result && result.pnx) {
+      if (result.pnx.display && result.pnx.display.type) {
+        var contentType = result.pnx.display.type[0].trim().toLowerCase();
+
+        if (contentType.indexOf("journal") > -1) {
+          validation = true;
+        }
+      }
+    }
+
+    return validation;
+  };
+
+  function getIssn(scope) {
+    var issn = "";
+    var result = getResult(scope);
+
+    if (result && result.pnx && result.pnx.addata) {
+      if (result.pnx.addata.issn) {
+        if (result.pnx.addata.issn.length > 1) {
+          issn = result.pnx.addata.issn.filter(function(issn) {
+            return (issn.length < 10) && (/[\S]{4}\-[\S]{4}/.test(issn));
+          }).join(",").trim().replace(/-/g, "");
+        } else {
+          if (result.pnx.addata.issn[0]) {
+            issn = result.pnx.addata.issn[0].trim().replace("-", "");
+          }
+        }
+      }
+
+      if (result.pnx.addata.eissn && !issn) {
+        if (result.pnx.addata.eissn.length > 1) {
+          issn = result.pnx.addata.eissn.filter(function(issn) {
+            return (issn.length < 10) && (/[\S]{4}\-[\S]{4}/.test(issn));
+          }).join(",").trim().replace(/-/g, "");
+        } else {
+          if (result.pnx.addata.eissn[0]) {
+            issn = result.pnx.addata.eissn[0].trim().replace("-", "");
+          }
+        }
+      }
+    }
+
+    return encodeURIComponent(issn);
+  };
+
+  function getDoi(scope) {
+    var doi = "";
+    var result = getResult(scope);
+
+    if (result && result.pnx) {
+      if (result.pnx.addata && result.pnx.addata.doi) {
+        if (result.pnx.addata.doi[0]) {
+          doi = result.pnx.addata.doi[0].trim();
+        }
+      }
+    }
+
+    return encodeURIComponent(doi);
+  };
+
+  function getEndpoint(scope) {
+    var endpoint = "";
+
+    if (isJournal(scope) && getIssn(scope)) {
+      var issn = getIssn(scope);
+      endpoint = api + "/search?issns=" + issn;
+    }
+
+    if (isArticle(scope) && getDoi(scope)) {
+      var doi = getDoi(scope);
+      endpoint = api + "/articles/doi/" + doi + "?include=journal,library";
+    }
+
+    if (isArticle(scope) && !getDoi(scope) && getIssn(scope)) {
+      var issn = getIssn(scope);
+      endpoint = api + "/search?issns=" + issn;
+    }
+
+    endpoint += "&access_token=" + apiKey;
+
+    return endpoint;
+  };
+
+  function getUnpaywallEndpoint(scope) {
+    var endpoint;
+    var email = browzine.unpaywallEmailAddressKey;
+
+    if (isArticle(scope) && getDoi(scope) && email) {
+      var doi = getDoi(scope);
+      endpoint = "https://api.unpaywall.org/v2/" + doi + "?email=" + email;
+    }
+
+    return endpoint;
+  };
+
+  function getData(response) {
+    var data = {};
+
+    if (Array.isArray(response.data)) {
+      data = response.data.filter(function(journal) {
+        return journal.browzineEnabled === true;
+      }).pop();
+    } else {
+      data = response.data;
+    }
+
+    return data;
+  };
+
+  function getIncludedJournal(response) {
+    var journal = null;
+
+    if (response.included) {
+      journal = Array.isArray(response.included) ? response.included[0] : response.included;
+    }
+
+    return journal;
+  };
+
+  function getBrowZineWebLink(data) {
+    var browzineWebLink = null;
+
+    if (data && data.browzineWebLink) {
+      browzineWebLink = data.browzineWebLink;
+    }
+
+    return browzineWebLink;
+  };
+
+  function getCoverImageUrl(scope, data, journal) {
+    var coverImageUrl = null;
+
+    if (isJournal(scope) && getIssn(scope)) {
+      if (data && data.coverImageUrl) {
+        coverImageUrl = data.coverImageUrl;
+      }
+    }
+
+    if (isArticle(scope) && getDoi(scope)) {
+      if (journal && journal.coverImageUrl) {
+        coverImageUrl = journal.coverImageUrl;
+      }
+    }
+
+    if (isArticle(scope) && !getDoi(scope) && getIssn(scope)) {
+      if (data && data.coverImageUrl) {
+        coverImageUrl = data.coverImageUrl;
+      }
+    }
+
+    return coverImageUrl;
+  };
+
+  function getBrowZineEnabled(scope, data, journal) {
+    var browzineEnabled = false;
+
+    if (isJournal(scope)) {
+      if (data && data.browzineEnabled) {
+        browzineEnabled = data.browzineEnabled;
+      }
+    }
+
+    if (isArticle(scope)) {
+      if (journal && journal.browzineEnabled) {
+        browzineEnabled = journal.browzineEnabled;
+      }
+    }
+
+    return browzineEnabled;
+  };
+
+  function isDefaultCoverImage(coverImageUrl) {
+    var defaultCoverImage = false;
+
+    if (coverImageUrl && coverImageUrl.toLowerCase().indexOf("default") > -1) {
+      defaultCoverImage = true;
+    }
+
+    return defaultCoverImage;
+  };
+
+  function getDirectToPDFUrl(scope, data) {
+    var directToPDFUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.fullTextFile) {
+        directToPDFUrl = data.fullTextFile;
+      }
+    }
+
+    return directToPDFUrl;
+  };
+
+  function getUnpaywallUsable(scope, data) {
+    if (!isArticle(scope)) {
+      return false;
+    }
+    if (!data || !data.hasOwnProperty("unpaywallUsable")) {
+      return true;
+    }
+    return !!data.unpaywallUsable;
+  };
+
+  function getArticleLinkUrl(scope, data) {
+    var articleLinkUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.contentLocation) {
+        articleLinkUrl = data.contentLocation;
+      }
+    }
+
+    return articleLinkUrl;
+  };
+
+  function getArticleRetractionUrl(scope, data) {
+    var articleRetractionUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.retractionNoticeUrl) {
+        articleRetractionUrl = data.retractionNoticeUrl;
+      }
+    }
+
+    return articleRetractionUrl;
+  };
+
+  function getArticleEOCNoticeUrl(scope, data) {
+    var articleEocNoticeUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.expressionOfConcernNoticeUrl) {
+        articleEocNoticeUrl = data.expressionOfConcernNoticeUrl;
+      }
+    }
+    return articleEocNoticeUrl;
+  }
+
+  function getProblematicJournalArticleNoticeUrl(scope, data) {
+    var problematicJournalArticleNoticeUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.problematicJournalArticleNoticeUrl) {
+        problematicJournalArticleNoticeUrl = data.problematicJournalArticleNoticeUrl;
+      }
+    }
+    return problematicJournalArticleNoticeUrl;
+  }
+
+  function isTrustedRepository(response) {
+    var validation = false;
+
+    if (response.best_oa_location && response.best_oa_location.url_for_pdf) {
+      if (response.best_oa_location.url_for_pdf.indexOf('nih.gov') > -1 || response.best_oa_location.url_for_pdf.indexOf('europepmc.org') > -1) {
+        validation = true;
+      }
+    }
+
+    return validation;
+  };
+
+  function isUnknownVersion(response) {
+    var validation = false;
+
+    if (response.best_oa_location) {
+      if (!response.best_oa_location.version || response.best_oa_location.version === '') {
+        validation = true;
+      }
+    }
+
+    return validation;
+  };
+
+  function getUnpaywallArticlePDFUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "publisher" || response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "publishedVersion" || (isUnknownVersion(response) && isTrustedRepository(response))) {
+          if (response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_pdf;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function getUnpaywallArticleLinkUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "publisher" || response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "publishedVersion") {
+          if (!response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_landing_page;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function getUnpaywallManuscriptArticlePDFUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "acceptedVersion" || (isUnknownVersion(response) && !isTrustedRepository(response))) {
+          if (response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_pdf;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function getUnpaywallManuscriptArticleLinkUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "acceptedVersion") {
+          if (!response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_landing_page;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function showJournalCoverImages() {
+    var featureEnabled = false;
+    var config = browzine.journalCoverImagesEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showJournalBrowZineWebLinkText() {
+    var featureEnabled = false;
+    var config = browzine.journalBrowZineWebLinkTextEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showArticleBrowZineWebLinkText() {
+    var featureEnabled = false;
+    var config = browzine.articleBrowZineWebLinkTextEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showDirectToPDFLink() {
+    var featureEnabled = false;
+    var config = browzine.articlePDFDownloadLinkEnabled;
+    var prefixConfig = browzine.primoArticlePDFDownloadLinkEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    if (typeof prefixConfig !== "undefined" && prefixConfig !== null && prefixConfig === false) {
+      featureEnabled = false;
+    }
+
+    return featureEnabled;
+  };
+
+  function showArticleLink() {
+    var featureEnabled = false;
+    var config = browzine.articleLinkEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showPrintRecords() {
+    var featureEnabled = false;
+    var config = browzine.printRecordsIntegrationEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showRetractionWatch() {
+    var featureEnabled = false;
+    var config = browzine.articleRetractionWatchEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showExpressionOfConcern() {
+    var featureEnabled = false;
+    var config = browzine.articleExpressionOfConcernEnabled;
+
+    if(typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    };
+
+    return featureEnabled;
+  };
+
+  function showFormatChoice() {
+    var featureEnabled = false;
+    var config = browzine.showFormatChoice;
+
+    if (config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showLinkResolverLink() {
+    var featureEnabled = false;
+    var config = browzine.showLinkResolverLink;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function enableLinkOptimizer() {
+    var featureEnabled = false;
+    var config = browzine.enableLinkOptimizer;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function isFiltered(scope) {
+    var validation = false;
+    var result = getResult(scope);
+
+    if (result && result.delivery) {
+      if (result.delivery.deliveryCategory && result.delivery.deliveryCategory.length > 0) {
+        var deliveryCategory = result.delivery.deliveryCategory[0].trim().toLowerCase();
+
+        if (deliveryCategory === "alma-p" && !showPrintRecords()) {
+          validation = true;
+        }
+      }
+    }
+
+    return validation;
+  };
+
+  function transition(event, anchor) {
+    // We‚Äôve seen some discovery services intercept basic a href links, and have
+    // been encouraged to intercept clicks more closely. We should continue
+    // intercepting clicks like this unless we hear feedback from discovery
+    // service vendors that this is no longer desired or necessary.
+    event.preventDefault();
+    event.stopPropagation();
+
+    window.open(anchor.href, anchor.target);
+
+    return false;
+  };
+
+  function showRetractionWatchUI(articleRetractionUrl) {
+    return articleRetractionUrl && showRetractionWatch();
+  };
+
+  function showEocNoticeUI(articleEocNoticeUrl) {
+    return articleEocNoticeUrl && showExpressionOfConcern();
+  }
+
+  function showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl) {
+    return !!problematicJournalArticleNoticeUrl;
+  }
+
+  function directToPDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svg";
+    var pdfIconWidth = "12";
+    var pdfIconMarginRight = "4.5px";
+    var articlePDFDownloadLinkText = browzine.articlePDFDownloadLinkText || browzine.primoArticlePDFDownloadLinkText  || "Download PDF";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      directToPDFUrl = articleRetractionUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      directToPDFUrl = articleEocNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      directToPDFUrl = problematicJournalArticleNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-direct-to-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> " +
+                          "<span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{directToPDFUrl}/g, directToPDFUrl);
+    template = template.replace(/{articlePDFDownloadLinkText}/g, articlePDFDownloadLinkText);
+    template = template.replace(/{pdfIcon}/g, pdfIcon);
+    template = template.replace(/{pdfIconWidth}/g, pdfIconWidth);
+    template = template.replace(/{pdfIconMarginRight}/g, pdfIconMarginRight);
+
+    return template;
+  };
+
+  function articleLinkTemplate(articleLinkUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg";
+    var linkIconWidth = "12";
+    var linkIconMarginRight = "4.5px";
+    var articleLinkText = browzine.articleLinkText  || "Read Article";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      articleLinkUrl = articleRetractionUrl;
+      linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      linkIconWidth = "15";
+      linkIconMarginRight = "1.5px";
+      articleLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      articleLinkUrl = articleEocNoticeUrl;
+      linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      linkIconWidth = "15";
+      linkIconMarginRight = "1.5px";
+      articleLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      articleLinkUrl = problematicJournalArticleNoticeUrl;
+      linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      linkIconWidth = "15";
+      linkIconMarginRight = "1.5px";
+      articleLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+  function retractionWatchLinkTemplate(articleRetractionUrl) {
+    var articleLinkUrl = articleRetractionUrl;
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+    var linkIconWidth = "15";
+    var linkIconMarginRight = "1.5px";
+    var articleLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+  function eocLinkTemplate(articleEocNoticeUrl) {
+    var articleLinkUrl = articleEocNoticeUrl;
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+    var linkIconWidth = "15";
+    var linkIconMarginRight = "1.5px";
+    var articleLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+  function problematicJournalArticleNoticeLinkTemplate(problematicJournalArticleNoticeUrl) {
+    var articleLinkUrl = problematicJournalArticleNoticeUrl;
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+    var linkIconWidth = "15";
+    var linkIconMarginRight = "1.5px";
+    var articleLinkText = browzine.problematicJournalText || "Problematic Journal";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+
+  function browzineWebLinkTemplate(scope, browzineWebLink) {
+    var browzineWebLinkText = "";
+    var bookIcon = "https://assets.thirdiron.com/images/integrations/browzine-open-book-icon.svg";
+
+    if (isJournal(scope)) {
+      browzineWebLinkText = browzine.journalBrowZineWebLinkText || browzine.primoJournalBrowZineWebLinkText || "View Journal Contents";
+    }
+
+    if (isArticle(scope)) {
+      browzineWebLinkText = browzine.articleBrowZineWebLinkText || browzine.primoArticleBrowZineWebLinkText || "View Issue Contents";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em;'>" +
+                      "<a class='browzine-web-link' href='{browzineWebLink}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Book Icon' src='{bookIcon}' class='browzine-book-icon' style='margin-bottom: -2px; margin-right: 2.5px;' aria-hidden='true' width='15' height='15'/> " +
+                          "<span class='browzine-web-link-text'>{browzineWebLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{browzineWebLink}/g, browzineWebLink);
+    template = template.replace(/{browzineWebLinkText}/g, browzineWebLinkText);
+    template = template.replace(/{bookIcon}/g, bookIcon);
+
+    return template;
+  };
+
+  function unpaywallArticlePDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svg";
+    var pdfIconWidth = "12";
+    var pdfIconMarginRight = "4.5px";
+    var articlePDFDownloadLinkText = browzine.articlePDFDownloadViaUnpaywallText  || "Download PDF (via Unpaywall)";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      directToPDFUrl = articleRetractionUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      directToPDFUrl = articleEocNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      directToPDFUrl = problematicJournalArticleNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-article-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> " +
+                          "<span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{directToPDFUrl}/g, directToPDFUrl);
+    template = template.replace(/{articlePDFDownloadLinkText}/g, articlePDFDownloadLinkText);
+    template = template.replace(/{pdfIcon}/g, pdfIcon);
+    template = template.replace(/{pdfIconWidth}/g, pdfIconWidth);
+    template = template.replace(/{pdfIconMarginRight}/g, pdfIconMarginRight);
+
+    return template;
+  };
+
+  //TODO: BZ 8196 - Will address the need here for retraction/eoc handling as well as ironing out some logic.
+  function unpaywallArticleLinkTemplate(articleLinkUrl) {
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg";
+    var articleLinkText = browzine.articleLinkViaUnpaywallText  || "Read Article (via Unpaywall)";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: 4.5px;' aria-hidden='true' width='12' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+
+    return template;
+  };
+
+  function unpaywallManuscriptPDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svg";
+    var pdfIconWidth = "12";
+    var pdfIconMarginRight = "4.5px";
+    var articlePDFDownloadLinkText = browzine.articleAcceptedManuscriptPDFViaUnpaywallText  || "Download PDF (Accepted Manuscript via Unpaywall)";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      directToPDFUrl = articleRetractionUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      directToPDFUrl = articleEocNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      articleLinkUrl = problematicJournalArticleNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-manuscript-article-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> " +
+                          "<span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{directToPDFUrl}/g, directToPDFUrl);
+    template = template.replace(/{articlePDFDownloadLinkText}/g, articlePDFDownloadLinkText);
+    template = template.replace(/{pdfIcon}/g, pdfIcon);
+    template = template.replace(/{pdfIconWidth}/g, pdfIconWidth);
+    template = template.replace(/{pdfIconMarginRight}/g, pdfIconMarginRight);
+
+    return template;
+  };
+
+  function unpaywallManuscriptLinkTemplate(articleLinkUrl) {
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg";
+    var articleLinkText = browzine.articleAcceptedManuscriptArticleLinkViaUnpaywallText  || "Read Article (Accepted Manuscript via Unpaywall)";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-manuscript-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: 4.5px;' aria-hidden='true' width='12' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+
+    return template;
+  };
+
+  function isUnpaywallEnabled() {
+    return browzine.articlePDFDownloadViaUnpaywallEnabled || browzine.articleLinkViaUnpaywallEnabled || browzine.articleAcceptedManuscriptPDFViaUnpaywallEnabled || browzine.articleAcceptedManuscriptArticleLinkViaUnpaywallEnabled;
+  };
+
+  function getElement(scope) {
+    return scope.$element;
+  };
+
+  function getElementParent(element) {
+    return element[0].offsetParent || element[0];
+  };
+
+  function getScope($scope) {
+    var scope;
+
+    if ($scope && $scope.$ctrl && $scope.$ctrl.parentCtrl && $scope.$ctrl.parentCtrl.$element) {
+      // Pre-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úì
+      // Primo Studio Integration: ‚úì
+
+      // Post-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úó
+      // Primo Studio Integration: ‚úó
+      scope = $scope.$ctrl.parentCtrl;
+    } else if ($scope && $scope.$parent && $scope.$parent.$ctrl && $scope.$parent.$ctrl.$element) {
+      // Pre-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úì
+      // Primo Studio Integration: ‚úó
+
+      // Post-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úì
+      // Primo Studio Integration: ‚úó
+      scope = $scope.$parent.$ctrl;
+    } else if ($scope && $scope.$parent && $scope.$parent.$ctrl && $scope.$parent.$ctrl.parentCtrl && $scope.$parent.$ctrl.parentCtrl.$element) {
+      // Pre-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úó
+      // Primo Studio Integration: ‚úó
+
+      // Post-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úó
+      // Primo Studio Integration: ‚úì
+      scope = $scope.$parent.$ctrl.parentCtrl;
+    }
+
+    return scope;
+  };
+
+  function shouldEnhance(scope) {
+    var validation = false;
+
+    if (!isFiltered(scope)) {
+      if (isJournal(scope) && getIssn(scope)) {
+        validation = true;
+      }
+
+      if (isArticle(scope) && getDoi(scope)) {
+        validation = true;
+      }
+
+      if (isArticle(scope) && !getDoi(scope) && getIssn(scope)) {
+        validation = true;
+      }
+    }
+
+    return validation;
+  };
+
+  function shouldAvoidUnpaywall(response) {
+    if (response.hasOwnProperty('meta') && response.meta.hasOwnProperty('avoidUnpaywall')) {
+      return response.meta.avoidUnpaywall;
+    } else {
+      return false;
+    };
+  }
+
+  function shouldIgnoreUnpaywallResponse(response, unpaywallResponse) {
+    if (response.hasOwnProperty('data') && response.data.hasOwnProperty('avoidUnpaywallPublisherLinks')) {
+      if (unpaywallResponse.best_oa_location && unpaywallResponse.best_oa_location.host_type === "publisher") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function searchResult($scope) {
+    var scope = getScope($scope);
+
+    if (!shouldEnhance(scope)) {
+      return;
+    }
+
+    var endpoint = getEndpoint(scope);
+
+    var request = new XMLHttpRequest();
+    request.open("GET", endpoint, true);
+    request.setRequestHeader("Content-type", "application/json");
+
+    request.onload = function() {
+      if (request.readyState == XMLHttpRequest.DONE && request.status == 200) {
+        var response = JSON.parse(request.response);
+
+        var data = getData(response);
+        var journal = getIncludedJournal(response);
+
+        var browzineWebLink = getBrowZineWebLink(data);
+        var coverImageUrl = getCoverImageUrl(scope, data, journal);
+        var browzineEnabled = getBrowZineEnabled(scope, data, journal);
+        var defaultCoverImage = isDefaultCoverImage(coverImageUrl);
+        var directToPDFUrl = getDirectToPDFUrl(scope, data);
+        var unpaywallUsable = getUnpaywallUsable(scope, data);
+        var articleLinkUrl = getArticleLinkUrl(scope, data);
+        var articleRetractionUrl = getArticleRetractionUrl(scope, data);
+        var articleEocNoticeUrl = getArticleEOCNoticeUrl(scope, data);
+        var problematicJournalArticleNoticeUrl = getProblematicJournalArticleNoticeUrl(scope, data);
+
+        var element = getElement(scope);
+
+        var libKeyLinkOptimizer = document.createElement("div");
+        libKeyLinkOptimizer.className = "libkey-link-optimizer";
+        libKeyLinkOptimizer.style = "display: flex; justify-content: flex-start;";
+
+        if (directToPDFUrl && isArticle(scope) && showDirectToPDFLink()) {
+          var template = directToPDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if ((!directToPDFUrl || (showFormatChoice() && !articleRetractionUrl && !articleEocNoticeUrl && !problematicJournalArticleNoticeUrl)) && articleLinkUrl && isArticle(scope) && showDirectToPDFLink() && showArticleLink()) {
+          var template = articleLinkTemplate(articleLinkUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (!directToPDFUrl && !articleLinkUrl && articleRetractionUrl && isArticle(scope) && showRetractionWatch()) {
+          var template = retractionWatchLinkTemplate(articleRetractionUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (!directToPDFUrl && !articleLinkUrl && !articleRetractionUrl && articleEocNoticeUrl && isArticle(scope) && showExpressionOfConcern()) {
+          var template = eocLinkTemplate(articleEocNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (!directToPDFUrl && !articleLinkUrl && !articleRetractionUrl && !articleEocNoticeUrl && problematicJournalArticleNoticeUrl && isArticle(scope)) {
+          var template = problematicJournalArticleNoticeLinkTemplate(problematicJournalArticleNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (libKeyLinkOptimizer.innerHTML) {
+          (function poll() {
+            var elementParent = getElementParent(element);
+            var availabilityLine = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start");
+
+            if (availabilityLine) {
+              availabilityLine.insertAdjacentHTML('afterbegin', libKeyLinkOptimizer.outerHTML);
+            } else {
+              requestAnimationFrame(poll);
+            }
+          })();
+        }
+
+        if (browzineWebLink && browzineEnabled && isJournal(scope) && showJournalBrowZineWebLinkText()) {
+          var template = browzineWebLinkTemplate(scope, browzineWebLink);
+          element.append(template);
+        }
+
+        if (browzineWebLink && browzineEnabled && isArticle(scope) && (directToPDFUrl || articleLinkUrl) && showArticleBrowZineWebLinkText()) {
+          var template = browzineWebLinkTemplate(scope, browzineWebLink);
+          element.append(template);
+        }
+
+        if (coverImageUrl && !defaultCoverImage && showJournalCoverImages()) {
+          (function poll() {
+            var elementParent = getElementParent(element);
+            var coverImages = elementParent.querySelectorAll("prm-search-result-thumbnail-container img");
+
+            if (coverImages && coverImages[0] && coverImages[0].className.indexOf("fan-img") > -1) {
+              Array.prototype.forEach.call(coverImages, function(coverImage) {
+                coverImage.src = coverImageUrl;
+              });
+            } else {
+              requestAnimationFrame(poll);
+            }
+          })();
+        }
+
+        if (!showLinkResolverLink() && (directToPDFUrl || articleLinkUrl)) {
+          var elementParent = getElementParent(element);
+          var contentLinkElement = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start .layout-row");
+
+          if (contentLinkElement) {
+            contentLinkElement.remove();
+          }
+        }
+
+        if ((directToPDFUrl || articleLinkUrl) && enableLinkOptimizer()) {
+          var elementParent = getElementParent(element);
+          var quickLinkElement = elementParent.querySelector("prm-quick-link");
+
+          if (quickLinkElement) {
+            quickLinkElement.remove();
+          }
+        }
+      }
+
+      if ((request.readyState == XMLHttpRequest.DONE && request.status == 404) || (isArticle(scope) && (!directToPDFUrl && !articleLinkUrl && unpaywallUsable))) {
+
+        var response = JSON.parse(request.response || '{}');
+        var shouldAvoidUnpaywallLiveCall = shouldAvoidUnpaywall(response);
+        if (shouldAvoidUnpaywallLiveCall) {
+          return
+        }
+
+        var endpoint = getUnpaywallEndpoint(scope);
+        if (endpoint && isUnpaywallEnabled()) {
+          var requestUnpaywall = new XMLHttpRequest();
+          requestUnpaywall.open("GET", endpoint, true);
+          requestUnpaywall.setRequestHeader("Content-type", "application/json");
+
+          requestUnpaywall.onload = function() {
+            if (requestUnpaywall.readyState == XMLHttpRequest.DONE && requestUnpaywall.status == 200) {
+              var responseUnpaywall = JSON.parse(requestUnpaywall.response);
+
+              if (shouldIgnoreUnpaywallResponse(response, responseUnpaywall)) {
+                return;
+              }
+
+              var unpaywallArticlePDFUrl = getUnpaywallArticlePDFUrl(responseUnpaywall);
+              var unpaywallArticleLinkUrl = getUnpaywallArticleLinkUrl(responseUnpaywall);
+              var unpaywallManuscriptArticlePDFUrl = getUnpaywallManuscriptArticlePDFUrl(responseUnpaywall);
+              var unpaywallManuscriptArticleLinkUrl = getUnpaywallManuscriptArticleLinkUrl(responseUnpaywall);
+              var articleRetractionUrl = getArticleRetractionUrl(scope, data);
+              var articleEocNoticeUrl = getArticleEOCNoticeUrl(scope, data);
+              var problematicJournalArticleNoticeUrl = getProblematicJournalArticleNoticeUrl(scope, data);
+
+              var template;
+              var pdfAvailable = false;
+
+              if (unpaywallArticlePDFUrl && browzine.articlePDFDownloadViaUnpaywallEnabled) {
+                template = unpaywallArticlePDFTemplate(unpaywallArticlePDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+                pdfAvailable = true;
+              } else if (unpaywallArticleLinkUrl && browzine.articleLinkViaUnpaywallEnabled ) {
+                template = unpaywallArticleLinkTemplate(unpaywallArticleLinkUrl);
+              } else if (unpaywallManuscriptArticlePDFUrl && browzine.articleAcceptedManuscriptPDFViaUnpaywallEnabled) {
+                template = unpaywallManuscriptPDFTemplate(unpaywallManuscriptArticlePDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+                pdfAvailable = true;
+              } else if (unpaywallManuscriptArticleLinkUrl && browzine.articleAcceptedManuscriptArticleLinkViaUnpaywallEnabled) {
+                template = unpaywallManuscriptLinkTemplate(unpaywallManuscriptArticleLinkUrl);
+              }
+
+              if (template) {
+                var element = getElement(scope);
+
+                (function poll() {
+                  var elementParent = getElementParent(element);
+                  var availabilityLine = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start");
+
+                  if (availabilityLine) {
+                    availabilityLine.insertAdjacentHTML('afterbegin', template);
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                })();
+              }
+
+              if (!showLinkResolverLink() && template) {
+                var element = getElement(scope);
+
+                (function poll() {
+                  var elementParent = getElementParent(element);
+                  var contentLinkElement = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start .layout-row");
+
+                  if (contentLinkElement) {
+                    contentLinkElement.remove();
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                })();
+              }
+
+              if (template) {
+                var element = getElement(scope);
+
+                (function poll() {
+                  var elementParent = getElementParent(element);
+                  var quickLinkElement = elementParent.querySelector("prm-quick-link");
+
+                  if (quickLinkElement) {
+                    quickLinkElement.remove();
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                })();
+              }
+            }
+          };
+
+          requestUnpaywall.send();
+        }
+      }
+    };
+
+    request.send();
+  };
+
+  return {
+    searchResult: searchResult,
+    urlRewrite: urlRewrite,
+    libraryIdOverride: libraryIdOverride,
+    getResult: getResult,
+    isArticle: isArticle,
+    isJournal: isJournal,
+    getIssn: getIssn,
+    getDoi: getDoi,
+    isFiltered: isFiltered,
+    getEndpoint: getEndpoint,
+    getUnpaywallEndpoint: getUnpaywallEndpoint,
+    shouldEnhance: shouldEnhance,
+    getData: getData,
+    getIncludedJournal: getIncludedJournal,
+    getBrowZineWebLink: getBrowZineWebLink,
+    getCoverImageUrl: getCoverImageUrl,
+    getBrowZineEnabled: getBrowZineEnabled,
+    isDefaultCoverImage: isDefaultCoverImage,
+    getDirectToPDFUrl: getDirectToPDFUrl,
+    getUnpaywallUsable: getUnpaywallUsable,
+    getArticleLinkUrl: getArticleLinkUrl,
+    getArticleRetractionUrl: getArticleRetractionUrl,
+    getArticleEOCNoticeUrl: getArticleEOCNoticeUrl,
+    isUnknownVersion: isUnknownVersion,
+    isTrustedRepository: isTrustedRepository,
+    getUnpaywallArticlePDFUrl: getUnpaywallArticlePDFUrl,
+    getUnpaywallArticleLinkUrl: getUnpaywallArticleLinkUrl,
+    getUnpaywallManuscriptArticlePDFUrl: getUnpaywallManuscriptArticlePDFUrl,
+    getUnpaywallManuscriptArticleLinkUrl: getUnpaywallManuscriptArticleLinkUrl,
+    showJournalCoverImages: showJournalCoverImages,
+    showJournalBrowZineWebLinkText: showJournalBrowZineWebLinkText,
+    showArticleBrowZineWebLinkText: showArticleBrowZineWebLinkText,
+    showDirectToPDFLink: showDirectToPDFLink,
+    showArticleLink: showArticleLink,
+    showPrintRecords: showPrintRecords,
+    showRetractionWatch: showRetractionWatch,
+    showExpressionOfConcern: showExpressionOfConcern,
+    showFormatChoice: showFormatChoice,
+    showLinkResolverLink: showLinkResolverLink,
+    enableLinkOptimizer: enableLinkOptimizer,
+    transition: transition,
+    directToPDFTemplate: directToPDFTemplate,
+    articleLinkTemplate: articleLinkTemplate,
+    retractionWatchLinkTemplate: retractionWatchLinkTemplate,
+    eocLinkTemplate: eocLinkTemplate,
+    browzineWebLinkTemplate: browzineWebLinkTemplate,
+    unpaywallArticlePDFTemplate: unpaywallArticlePDFTemplate,
+    unpaywallArticleLinkTemplate: unpaywallArticleLinkTemplate,
+    unpaywallManuscriptPDFTemplate: unpaywallManuscriptPDFTemplate,
+    unpaywallManuscriptLinkTemplate: unpaywallManuscriptLinkTemplate,
+    isUnpaywallEnabled: isUnpaywallEnabled,
+    getElement: getElement,
+    getElementParent: getElementParent,
+    getScope: getScope,
+  };
+}());
+        ÿò x ˇˇ     20241209150345-8lªò ¯Ë	J   https://s3.amazonaws.com/browzine-adapters/primo/browzine-primo-adapter.js      Iœ  browzine.primo = (function() {
+  var libraryId = browzine.libraryId;
+  var api = libraryIdOverride(urlRewrite(browzine.api));
+  var apiKey = browzine.apiKey;
+
+  function urlRewrite(url) {
+    if (!url) {
+      return;
+    } else if (url.indexOf("staging-api.thirdiron.com") > -1) {
+      return url;
+    }
+
+    return url.indexOf("public-api.thirdiron.com") > -1 ? url : url.replace("api.thirdiron.com", "public-api.thirdiron.com");
+  };
+
+  function libraryIdOverride(url) {
+    var override = url;
+    var libraryId = browzine.libraryId;
+
+    if (libraryId) {
+      var baseUrl = "https://public-api.thirdiron.com/public/v1/libraries/{libraryId}";
+      override = baseUrl.replace(/{libraryId}/g, libraryId);
+    }
+
+    return override;
+  };
+
+  function getResult(scope) {
+    return scope.result || scope.item;
+  };
+
+  function isArticle(scope) {
+    var validation = false;
+    var result = getResult(scope);
+
+    if (result && result.pnx) {
+      if (result.pnx.display && result.pnx.display.type) {
+        var contentType = result.pnx.display.type[0].trim().toLowerCase();
+
+        if (contentType.indexOf("article") > -1) {
+          validation = true;
+        }
+      }
+    }
+
+    return validation;
+  };
+
+  function isJournal(scope) {
+    var validation = false;
+    var result = getResult(scope);
+
+    if (result && result.pnx) {
+      if (result.pnx.display && result.pnx.display.type) {
+        var contentType = result.pnx.display.type[0].trim().toLowerCase();
+
+        if (contentType.indexOf("journal") > -1) {
+          validation = true;
+        }
+      }
+    }
+
+    return validation;
+  };
+
+  function getIssn(scope) {
+    var issn = "";
+    var result = getResult(scope);
+
+    if (result && result.pnx && result.pnx.addata) {
+      if (result.pnx.addata.issn) {
+        if (result.pnx.addata.issn.length > 1) {
+          issn = result.pnx.addata.issn.filter(function(issn) {
+            return (issn.length < 10) && (/[\S]{4}\-[\S]{4}/.test(issn));
+          }).join(",").trim().replace(/-/g, "");
+        } else {
+          if (result.pnx.addata.issn[0]) {
+            issn = result.pnx.addata.issn[0].trim().replace("-", "");
+          }
+        }
+      }
+
+      if (result.pnx.addata.eissn && !issn) {
+        if (result.pnx.addata.eissn.length > 1) {
+          issn = result.pnx.addata.eissn.filter(function(issn) {
+            return (issn.length < 10) && (/[\S]{4}\-[\S]{4}/.test(issn));
+          }).join(",").trim().replace(/-/g, "");
+        } else {
+          if (result.pnx.addata.eissn[0]) {
+            issn = result.pnx.addata.eissn[0].trim().replace("-", "");
+          }
+        }
+      }
+    }
+
+    return encodeURIComponent(issn);
+  };
+
+  function getDoi(scope) {
+    var doi = "";
+    var result = getResult(scope);
+
+    if (result && result.pnx) {
+      if (result.pnx.addata && result.pnx.addata.doi) {
+        if (result.pnx.addata.doi[0]) {
+          doi = result.pnx.addata.doi[0].trim();
+        }
+      }
+    }
+
+    return encodeURIComponent(doi);
+  };
+
+  function getEndpoint(scope) {
+    var endpoint = "";
+
+    if (isJournal(scope) && getIssn(scope)) {
+      var issn = getIssn(scope);
+      endpoint = api + "/search?issns=" + issn;
+    }
+
+    if (isArticle(scope) && getDoi(scope)) {
+      var doi = getDoi(scope);
+      endpoint = api + "/articles/doi/" + doi + "?include=journal,library";
+    }
+
+    if (isArticle(scope) && !getDoi(scope) && getIssn(scope)) {
+      var issn = getIssn(scope);
+      endpoint = api + "/search?issns=" + issn;
+    }
+
+    endpoint += "&access_token=" + apiKey;
+
+    return endpoint;
+  };
+
+  function getUnpaywallEndpoint(scope) {
+    var endpoint;
+    var email = browzine.unpaywallEmailAddressKey;
+
+    if (isArticle(scope) && getDoi(scope) && email) {
+      var doi = getDoi(scope);
+      endpoint = "https://api.unpaywall.org/v2/" + doi + "?email=" + email;
+    }
+
+    return endpoint;
+  };
+
+  function getData(response) {
+    var data = {};
+
+    if (Array.isArray(response.data)) {
+      data = response.data.filter(function(journal) {
+        return journal.browzineEnabled === true;
+      }).pop();
+    } else {
+      data = response.data;
+    }
+
+    return data;
+  };
+
+  function getIncludedJournal(response) {
+    var journal = null;
+
+    if (response.included) {
+      journal = Array.isArray(response.included) ? response.included[0] : response.included;
+    }
+
+    return journal;
+  };
+
+  function getBrowZineWebLink(data) {
+    var browzineWebLink = null;
+
+    if (data && data.browzineWebLink) {
+      browzineWebLink = data.browzineWebLink;
+    }
+
+    return browzineWebLink;
+  };
+
+  function getCoverImageUrl(scope, data, journal) {
+    var coverImageUrl = null;
+
+    if (isJournal(scope) && getIssn(scope)) {
+      if (data && data.coverImageUrl) {
+        coverImageUrl = data.coverImageUrl;
+      }
+    }
+
+    if (isArticle(scope) && getDoi(scope)) {
+      if (journal && journal.coverImageUrl) {
+        coverImageUrl = journal.coverImageUrl;
+      }
+    }
+
+    if (isArticle(scope) && !getDoi(scope) && getIssn(scope)) {
+      if (data && data.coverImageUrl) {
+        coverImageUrl = data.coverImageUrl;
+      }
+    }
+
+    return coverImageUrl;
+  };
+
+  function getBrowZineEnabled(scope, data, journal) {
+    var browzineEnabled = false;
+
+    if (isJournal(scope)) {
+      if (data && data.browzineEnabled) {
+        browzineEnabled = data.browzineEnabled;
+      }
+    }
+
+    if (isArticle(scope)) {
+      if (journal && journal.browzineEnabled) {
+        browzineEnabled = journal.browzineEnabled;
+      }
+    }
+
+    return browzineEnabled;
+  };
+
+  function isDefaultCoverImage(coverImageUrl) {
+    var defaultCoverImage = false;
+
+    if (coverImageUrl && coverImageUrl.toLowerCase().indexOf("default") > -1) {
+      defaultCoverImage = true;
+    }
+
+    return defaultCoverImage;
+  };
+
+  function getDirectToPDFUrl(scope, data) {
+    var directToPDFUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.fullTextFile) {
+        directToPDFUrl = data.fullTextFile;
+      }
+    }
+
+    return directToPDFUrl;
+  };
+
+  function getUnpaywallUsable(scope, data) {
+    if (!isArticle(scope)) {
+      return false;
+    }
+    if (!data || !data.hasOwnProperty("unpaywallUsable")) {
+      return true;
+    }
+    return !!data.unpaywallUsable;
+  };
+
+  function getArticleLinkUrl(scope, data) {
+    var articleLinkUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.contentLocation) {
+        articleLinkUrl = data.contentLocation;
+      }
+    }
+
+    return articleLinkUrl;
+  };
+
+  function getArticleRetractionUrl(scope, data) {
+    var articleRetractionUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.retractionNoticeUrl) {
+        articleRetractionUrl = data.retractionNoticeUrl;
+      }
+    }
+
+    return articleRetractionUrl;
+  };
+
+  function getArticleEOCNoticeUrl(scope, data) {
+    var articleEocNoticeUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.expressionOfConcernNoticeUrl) {
+        articleEocNoticeUrl = data.expressionOfConcernNoticeUrl;
+      }
+    }
+    return articleEocNoticeUrl;
+  }
+
+  function getProblematicJournalArticleNoticeUrl(scope, data) {
+    var problematicJournalArticleNoticeUrl = null;
+
+    if (isArticle(scope)) {
+      if (data && data.problematicJournalArticleNoticeUrl) {
+        problematicJournalArticleNoticeUrl = data.problematicJournalArticleNoticeUrl;
+      }
+    }
+    return problematicJournalArticleNoticeUrl;
+  }
+
+  function isTrustedRepository(response) {
+    var validation = false;
+
+    if (response.best_oa_location && response.best_oa_location.url_for_pdf) {
+      if (response.best_oa_location.url_for_pdf.indexOf('nih.gov') > -1 || response.best_oa_location.url_for_pdf.indexOf('europepmc.org') > -1) {
+        validation = true;
+      }
+    }
+
+    return validation;
+  };
+
+  function isUnknownVersion(response) {
+    var validation = false;
+
+    if (response.best_oa_location) {
+      if (!response.best_oa_location.version || response.best_oa_location.version === '') {
+        validation = true;
+      }
+    }
+
+    return validation;
+  };
+
+  function getUnpaywallArticlePDFUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "publisher" || response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "publishedVersion" || (isUnknownVersion(response) && isTrustedRepository(response))) {
+          if (response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_pdf;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function getUnpaywallArticleLinkUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "publisher" || response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "publishedVersion") {
+          if (!response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_landing_page;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function getUnpaywallManuscriptArticlePDFUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "acceptedVersion" || (isUnknownVersion(response) && !isTrustedRepository(response))) {
+          if (response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_pdf;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function getUnpaywallManuscriptArticleLinkUrl(response) {
+    var url;
+
+    if (response.best_oa_location) {
+      if (response.best_oa_location.host_type === "repository") {
+        if (response.best_oa_location.version === "acceptedVersion") {
+          if (!response.best_oa_location.url_for_pdf) {
+            url = response.best_oa_location.url_for_landing_page;
+          }
+        }
+      }
+    }
+
+    return url;
+  };
+
+  function showJournalCoverImages() {
+    var featureEnabled = false;
+    var config = browzine.journalCoverImagesEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showJournalBrowZineWebLinkText() {
+    var featureEnabled = false;
+    var config = browzine.journalBrowZineWebLinkTextEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showArticleBrowZineWebLinkText() {
+    var featureEnabled = false;
+    var config = browzine.articleBrowZineWebLinkTextEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showDirectToPDFLink() {
+    var featureEnabled = false;
+    var config = browzine.articlePDFDownloadLinkEnabled;
+    var prefixConfig = browzine.primoArticlePDFDownloadLinkEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    if (typeof prefixConfig !== "undefined" && prefixConfig !== null && prefixConfig === false) {
+      featureEnabled = false;
+    }
+
+    return featureEnabled;
+  };
+
+  function showArticleLink() {
+    var featureEnabled = false;
+    var config = browzine.articleLinkEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showPrintRecords() {
+    var featureEnabled = false;
+    var config = browzine.printRecordsIntegrationEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showRetractionWatch() {
+    var featureEnabled = false;
+    var config = browzine.articleRetractionWatchEnabled;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showExpressionOfConcern() {
+    var featureEnabled = false;
+    var config = browzine.articleExpressionOfConcernEnabled;
+
+    if(typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    };
+
+    return featureEnabled;
+  };
+
+  function showFormatChoice() {
+    var featureEnabled = false;
+    var config = browzine.showFormatChoice;
+
+    if (config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function showLinkResolverLink() {
+    var featureEnabled = false;
+    var config = browzine.showLinkResolverLink;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function enableLinkOptimizer() {
+    var featureEnabled = false;
+    var config = browzine.enableLinkOptimizer;
+
+    if (typeof config === "undefined" || config === null || config === true) {
+      featureEnabled = true;
+    }
+
+    return featureEnabled;
+  };
+
+  function isFiltered(scope) {
+    var validation = false;
+    var result = getResult(scope);
+
+    if (result && result.delivery) {
+      if (result.delivery.deliveryCategory && result.delivery.deliveryCategory.length > 0) {
+        var deliveryCategory = result.delivery.deliveryCategory[0].trim().toLowerCase();
+
+        if (deliveryCategory === "alma-p" && !showPrintRecords()) {
+          validation = true;
+        }
+      }
+    }
+
+    return validation;
+  };
+
+  function transition(event, anchor) {
+    // We‚Äôve seen some discovery services intercept basic a href links, and have
+    // been encouraged to intercept clicks more closely. We should continue
+    // intercepting clicks like this unless we hear feedback from discovery
+    // service vendors that this is no longer desired or necessary.
+    event.preventDefault();
+    event.stopPropagation();
+
+    window.open(anchor.href, anchor.target);
+
+    return false;
+  };
+
+  function showRetractionWatchUI(articleRetractionUrl) {
+    return articleRetractionUrl && showRetractionWatch();
+  };
+
+  function showEocNoticeUI(articleEocNoticeUrl) {
+    return articleEocNoticeUrl && showExpressionOfConcern();
+  }
+
+  function showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl) {
+    return !!problematicJournalArticleNoticeUrl;
+  }
+
+  function directToPDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svg";
+    var pdfIconWidth = "12";
+    var pdfIconMarginRight = "4.5px";
+    var articlePDFDownloadLinkText = browzine.articlePDFDownloadLinkText || browzine.primoArticlePDFDownloadLinkText  || "Download PDF";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      directToPDFUrl = articleRetractionUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      directToPDFUrl = articleEocNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      directToPDFUrl = problematicJournalArticleNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-direct-to-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> " +
+                          "<span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{directToPDFUrl}/g, directToPDFUrl);
+    template = template.replace(/{articlePDFDownloadLinkText}/g, articlePDFDownloadLinkText);
+    template = template.replace(/{pdfIcon}/g, pdfIcon);
+    template = template.replace(/{pdfIconWidth}/g, pdfIconWidth);
+    template = template.replace(/{pdfIconMarginRight}/g, pdfIconMarginRight);
+
+    return template;
+  };
+
+  function articleLinkTemplate(articleLinkUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg";
+    var linkIconWidth = "12";
+    var linkIconMarginRight = "4.5px";
+    var articleLinkText = browzine.articleLinkText  || "Read Article";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      articleLinkUrl = articleRetractionUrl;
+      linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      linkIconWidth = "15";
+      linkIconMarginRight = "1.5px";
+      articleLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      articleLinkUrl = articleEocNoticeUrl;
+      linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      linkIconWidth = "15";
+      linkIconMarginRight = "1.5px";
+      articleLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      articleLinkUrl = problematicJournalArticleNoticeUrl;
+      linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      linkIconWidth = "15";
+      linkIconMarginRight = "1.5px";
+      articleLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+  function retractionWatchLinkTemplate(articleRetractionUrl) {
+    var articleLinkUrl = articleRetractionUrl;
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+    var linkIconWidth = "15";
+    var linkIconMarginRight = "1.5px";
+    var articleLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+  function eocLinkTemplate(articleEocNoticeUrl) {
+    var articleLinkUrl = articleEocNoticeUrl;
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+    var linkIconWidth = "15";
+    var linkIconMarginRight = "1.5px";
+    var articleLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+  function problematicJournalArticleNoticeLinkTemplate(problematicJournalArticleNoticeUrl) {
+    var articleLinkUrl = problematicJournalArticleNoticeUrl;
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+    var linkIconWidth = "15";
+    var linkIconMarginRight = "1.5px";
+    var articleLinkText = browzine.problematicJournalText || "Problematic Journal";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+    template = template.replace(/{linkIconWidth}/g, linkIconWidth);
+    template = template.replace(/{linkIconMarginRight}/g, linkIconMarginRight);
+
+    return template;
+  };
+
+
+  function browzineWebLinkTemplate(scope, browzineWebLink) {
+    var browzineWebLinkText = "";
+    var bookIcon = "https://assets.thirdiron.com/images/integrations/browzine-open-book-icon.svg";
+
+    if (isJournal(scope)) {
+      browzineWebLinkText = browzine.journalBrowZineWebLinkText || browzine.primoJournalBrowZineWebLinkText || "View Journal Contents";
+    }
+
+    if (isArticle(scope)) {
+      browzineWebLinkText = browzine.articleBrowZineWebLinkText || browzine.primoArticleBrowZineWebLinkText || "View Issue Contents";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em;'>" +
+                      "<a class='browzine-web-link' href='{browzineWebLink}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Book Icon' src='{bookIcon}' class='browzine-book-icon' style='margin-bottom: -2px; margin-right: 2.5px;' aria-hidden='true' width='15' height='15'/> " +
+                          "<span class='browzine-web-link-text'>{browzineWebLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{browzineWebLink}/g, browzineWebLink);
+    template = template.replace(/{browzineWebLinkText}/g, browzineWebLinkText);
+    template = template.replace(/{bookIcon}/g, bookIcon);
+
+    return template;
+  };
+
+  function unpaywallArticlePDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svg";
+    var pdfIconWidth = "12";
+    var pdfIconMarginRight = "4.5px";
+    var articlePDFDownloadLinkText = browzine.articlePDFDownloadViaUnpaywallText  || "Download PDF (via Unpaywall)";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      directToPDFUrl = articleRetractionUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      directToPDFUrl = articleEocNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      directToPDFUrl = problematicJournalArticleNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-article-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> " +
+                          "<span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{directToPDFUrl}/g, directToPDFUrl);
+    template = template.replace(/{articlePDFDownloadLinkText}/g, articlePDFDownloadLinkText);
+    template = template.replace(/{pdfIcon}/g, pdfIcon);
+    template = template.replace(/{pdfIconWidth}/g, pdfIconWidth);
+    template = template.replace(/{pdfIconMarginRight}/g, pdfIconMarginRight);
+
+    return template;
+  };
+
+  //TODO: BZ 8196 - Will address the need here for retraction/eoc handling as well as ironing out some logic.
+  function unpaywallArticleLinkTemplate(articleLinkUrl) {
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg";
+    var articleLinkText = browzine.articleLinkViaUnpaywallText  || "Read Article (via Unpaywall)";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: 4.5px;' aria-hidden='true' width='12' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+
+    return template;
+  };
+
+  function unpaywallManuscriptPDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl) {
+    var pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svg";
+    var pdfIconWidth = "12";
+    var pdfIconMarginRight = "4.5px";
+    var articlePDFDownloadLinkText = browzine.articleAcceptedManuscriptPDFViaUnpaywallText  || "Download PDF (Accepted Manuscript via Unpaywall)";
+
+    if (showRetractionWatchUI(articleRetractionUrl)) {
+      directToPDFUrl = articleRetractionUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleRetractionWatchText || "Retracted Article";
+    } else if (showEocNoticeUI(articleEocNoticeUrl)) {
+      directToPDFUrl = articleEocNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.articleExpressionOfConcernText || "Expression of Concern";
+    } else if (showProblematicJournalArticleNoticeUI(problematicJournalArticleNoticeUrl)) {
+      articleLinkUrl = problematicJournalArticleNoticeUrl;
+      pdfIcon = "https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svg";
+      pdfIconWidth = "15";
+      pdfIconMarginRight = "1.5px";
+      articlePDFDownloadLinkText = browzine.problematicJournalText || "Problematic Journal";
+    }
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-manuscript-article-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> " +
+                          "<span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{directToPDFUrl}/g, directToPDFUrl);
+    template = template.replace(/{articlePDFDownloadLinkText}/g, articlePDFDownloadLinkText);
+    template = template.replace(/{pdfIcon}/g, pdfIcon);
+    template = template.replace(/{pdfIconWidth}/g, pdfIconWidth);
+    template = template.replace(/{pdfIconMarginRight}/g, pdfIconMarginRight);
+
+    return template;
+  };
+
+  function unpaywallManuscriptLinkTemplate(articleLinkUrl) {
+    var linkIcon = "https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg";
+    var articleLinkText = browzine.articleAcceptedManuscriptArticleLinkViaUnpaywallText  || "Read Article (Accepted Manuscript via Unpaywall)";
+
+    var template = "<div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'>" +
+                      "<a class='unpaywall-manuscript-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'>" +
+                          "<img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: 4.5px;' aria-hidden='true' width='12' height='16'/> " +
+                          "<span class='browzine-article-link-text'>{articleLinkText}</span> " +
+                          "<md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon>" +
+                      "</a>" +
+                   "</div>";
+
+    template = template.replace(/{articleLinkUrl}/g, articleLinkUrl);
+    template = template.replace(/{articleLinkText}/g, articleLinkText);
+    template = template.replace(/{linkIcon}/g, linkIcon);
+
+    return template;
+  };
+
+  function isUnpaywallEnabled() {
+    return browzine.articlePDFDownloadViaUnpaywallEnabled || browzine.articleLinkViaUnpaywallEnabled || browzine.articleAcceptedManuscriptPDFViaUnpaywallEnabled || browzine.articleAcceptedManuscriptArticleLinkViaUnpaywallEnabled;
+  };
+
+  function getElement(scope) {
+    return scope.$element;
+  };
+
+  function getElementParent(element) {
+    return element[0].offsetParent || element[0];
+  };
+
+  function getScope($scope) {
+    var scope;
+
+    if ($scope && $scope.$ctrl && $scope.$ctrl.parentCtrl && $scope.$ctrl.parentCtrl.$element) {
+      // Pre-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úì
+      // Primo Studio Integration: ‚úì
+
+      // Post-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úó
+      // Primo Studio Integration: ‚úó
+      scope = $scope.$ctrl.parentCtrl;
+    } else if ($scope && $scope.$parent && $scope.$parent.$ctrl && $scope.$parent.$ctrl.$element) {
+      // Pre-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úì
+      // Primo Studio Integration: ‚úó
+
+      // Post-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úì
+      // Primo Studio Integration: ‚úó
+      scope = $scope.$parent.$ctrl;
+    } else if ($scope && $scope.$parent && $scope.$parent.$ctrl && $scope.$parent.$ctrl.parentCtrl && $scope.$parent.$ctrl.parentCtrl.$element) {
+      // Pre-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úó
+      // Primo Studio Integration: ‚úó
+
+      // Post-Primo Angular 1.8.3
+      // 3i Normal Integration: ‚úó
+      // Primo Studio Integration: ‚úì
+      scope = $scope.$parent.$ctrl.parentCtrl;
+    }
+
+    return scope;
+  };
+
+  function shouldEnhance(scope) {
+    var validation = false;
+
+    if (!isFiltered(scope)) {
+      if (isJournal(scope) && getIssn(scope)) {
+        validation = true;
+      }
+
+      if (isArticle(scope) && getDoi(scope)) {
+        validation = true;
+      }
+
+      if (isArticle(scope) && !getDoi(scope) && getIssn(scope)) {
+        validation = true;
+      }
+    }
+
+    return validation;
+  };
+
+  function shouldAvoidUnpaywall(response) {
+    if (response.hasOwnProperty('meta') && response.meta.hasOwnProperty('avoidUnpaywall')) {
+      return response.meta.avoidUnpaywall;
+    } else {
+      return false;
+    };
+  }
+
+  function shouldIgnoreUnpaywallResponse(response, unpaywallResponse) {
+    if (response.hasOwnProperty('data') && response.data.hasOwnProperty('avoidUnpaywallPublisherLinks')) {
+      if (unpaywallResponse.best_oa_location && unpaywallResponse.best_oa_location.host_type === "publisher") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function searchResult($scope) {
+    var scope = getScope($scope);
+
+    if (!shouldEnhance(scope)) {
+      return;
+    }
+
+    var endpoint = getEndpoint(scope);
+
+    var request = new XMLHttpRequest();
+    request.open("GET", endpoint, true);
+    request.setRequestHeader("Content-type", "application/json");
+
+    request.onload = function() {
+      if (request.readyState == XMLHttpRequest.DONE && request.status == 200) {
+        var response = JSON.parse(request.response);
+
+        var data = getData(response);
+        var journal = getIncludedJournal(response);
+
+        var browzineWebLink = getBrowZineWebLink(data);
+        var coverImageUrl = getCoverImageUrl(scope, data, journal);
+        var browzineEnabled = getBrowZineEnabled(scope, data, journal);
+        var defaultCoverImage = isDefaultCoverImage(coverImageUrl);
+        var directToPDFUrl = getDirectToPDFUrl(scope, data);
+        var unpaywallUsable = getUnpaywallUsable(scope, data);
+        var articleLinkUrl = getArticleLinkUrl(scope, data);
+        var articleRetractionUrl = getArticleRetractionUrl(scope, data);
+        var articleEocNoticeUrl = getArticleEOCNoticeUrl(scope, data);
+        var problematicJournalArticleNoticeUrl = getProblematicJournalArticleNoticeUrl(scope, data);
+
+        var element = getElement(scope);
+
+        var libKeyLinkOptimizer = document.createElement("div");
+        libKeyLinkOptimizer.className = "libkey-link-optimizer";
+        libKeyLinkOptimizer.style = "display: flex; justify-content: flex-start;";
+
+        if (directToPDFUrl && isArticle(scope) && showDirectToPDFLink()) {
+          var template = directToPDFTemplate(directToPDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if ((!directToPDFUrl || (showFormatChoice() && !articleRetractionUrl && !articleEocNoticeUrl && !problematicJournalArticleNoticeUrl)) && articleLinkUrl && isArticle(scope) && showDirectToPDFLink() && showArticleLink()) {
+          var template = articleLinkTemplate(articleLinkUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (!directToPDFUrl && !articleLinkUrl && articleRetractionUrl && isArticle(scope) && showRetractionWatch()) {
+          var template = retractionWatchLinkTemplate(articleRetractionUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (!directToPDFUrl && !articleLinkUrl && !articleRetractionUrl && articleEocNoticeUrl && isArticle(scope) && showExpressionOfConcern()) {
+          var template = eocLinkTemplate(articleEocNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (!directToPDFUrl && !articleLinkUrl && !articleRetractionUrl && !articleEocNoticeUrl && problematicJournalArticleNoticeUrl && isArticle(scope)) {
+          var template = problematicJournalArticleNoticeLinkTemplate(problematicJournalArticleNoticeUrl);
+          libKeyLinkOptimizer.innerHTML += template;
+        }
+
+        if (libKeyLinkOptimizer.innerHTML) {
+          (function poll() {
+            var elementParent = getElementParent(element);
+            var availabilityLine = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start");
+
+            if (availabilityLine) {
+              availabilityLine.insertAdjacentHTML('afterbegin', libKeyLinkOptimizer.outerHTML);
+            } else {
+              requestAnimationFrame(poll);
+            }
+          })();
+        }
+
+        if (browzineWebLink && browzineEnabled && isJournal(scope) && showJournalBrowZineWebLinkText()) {
+          var template = browzineWebLinkTemplate(scope, browzineWebLink);
+          element.append(template);
+        }
+
+        if (browzineWebLink && browzineEnabled && isArticle(scope) && (directToPDFUrl || articleLinkUrl) && showArticleBrowZineWebLinkText()) {
+          var template = browzineWebLinkTemplate(scope, browzineWebLink);
+          element.append(template);
+        }
+
+        if (coverImageUrl && !defaultCoverImage && showJournalCoverImages()) {
+          (function poll() {
+            var elementParent = getElementParent(element);
+            var coverImages = elementParent.querySelectorAll("prm-search-result-thumbnail-container img");
+
+            if (coverImages && coverImages[0] && coverImages[0].className.indexOf("fan-img") > -1) {
+              Array.prototype.forEach.call(coverImages, function(coverImage) {
+                coverImage.src = coverImageUrl;
+              });
+            } else {
+              requestAnimationFrame(poll);
+            }
+          })();
+        }
+
+        if (!showLinkResolverLink() && (directToPDFUrl || articleLinkUrl)) {
+          var elementParent = getElementParent(element);
+          var contentLinkElement = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start .layout-row");
+
+          if (contentLinkElement) {
+            contentLinkElement.remove();
+          }
+        }
+
+        if ((directToPDFUrl || articleLinkUrl) && enableLinkOptimizer()) {
+          var elementParent = getElementParent(element);
+          var quickLinkElement = elementParent.querySelector("prm-quick-link");
+
+          if (quickLinkElement) {
+            quickLinkElement.remove();
+          }
+        }
+      }
+
+      if ((request.readyState == XMLHttpRequest.DONE && request.status == 404) || (isArticle(scope) && (!directToPDFUrl && !articleLinkUrl && unpaywallUsable))) {
+
+        var response = JSON.parse(request.response || '{}');
+        var shouldAvoidUnpaywallLiveCall = shouldAvoidUnpaywall(response);
+        if (shouldAvoidUnpaywallLiveCall) {
+          return
+        }
+
+        var endpoint = getUnpaywallEndpoint(scope);
+        if (endpoint && isUnpaywallEnabled()) {
+          var requestUnpaywall = new XMLHttpRequest();
+          requestUnpaywall.open("GET", endpoint, true);
+          requestUnpaywall.setRequestHeader("Content-type", "application/json");
+
+          requestUnpaywall.onload = function() {
+            if (requestUnpaywall.readyState == XMLHttpRequest.DONE && requestUnpaywall.status == 200) {
+              var responseUnpaywall = JSON.parse(requestUnpaywall.response);
+
+              if (shouldIgnoreUnpaywallResponse(response, responseUnpaywall)) {
+                return;
+              }
+
+              var unpaywallArticlePDFUrl = getUnpaywallArticlePDFUrl(responseUnpaywall);
+              var unpaywallArticleLinkUrl = getUnpaywallArticleLinkUrl(responseUnpaywall);
+              var unpaywallManuscriptArticlePDFUrl = getUnpaywallManuscriptArticlePDFUrl(responseUnpaywall);
+              var unpaywallManuscriptArticleLinkUrl = getUnpaywallManuscriptArticleLinkUrl(responseUnpaywall);
+              var articleRetractionUrl = getArticleRetractionUrl(scope, data);
+              var articleEocNoticeUrl = getArticleEOCNoticeUrl(scope, data);
+              var problematicJournalArticleNoticeUrl = getProblematicJournalArticleNoticeUrl(scope, data);
+
+              var template;
+              var pdfAvailable = false;
+
+              if (unpaywallArticlePDFUrl && browzine.articlePDFDownloadViaUnpaywallEnabled) {
+                template = unpaywallArticlePDFTemplate(unpaywallArticlePDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+                pdfAvailable = true;
+              } else if (unpaywallArticleLinkUrl && browzine.articleLinkViaUnpaywallEnabled ) {
+                template = unpaywallArticleLinkTemplate(unpaywallArticleLinkUrl);
+              } else if (unpaywallManuscriptArticlePDFUrl && browzine.articleAcceptedManuscriptPDFViaUnpaywallEnabled) {
+                template = unpaywallManuscriptPDFTemplate(unpaywallManuscriptArticlePDFUrl, articleRetractionUrl, articleEocNoticeUrl, problematicJournalArticleNoticeUrl);
+                pdfAvailable = true;
+              } else if (unpaywallManuscriptArticleLinkUrl && browzine.articleAcceptedManuscriptArticleLinkViaUnpaywallEnabled) {
+                template = unpaywallManuscriptLinkTemplate(unpaywallManuscriptArticleLinkUrl);
+              }
+
+              if (template) {
+                var element = getElement(scope);
+
+                (function poll() {
+                  var elementParent = getElementParent(element);
+                  var availabilityLine = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start");
+
+                  if (availabilityLine) {
+                    availabilityLine.insertAdjacentHTML('afterbegin', template);
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                })();
+              }
+
+              if (!showLinkResolverLink() && template) {
+                var element = getElement(scope);
+
+                (function poll() {
+                  var elementParent = getElementParent(element);
+                  var contentLinkElement = elementParent.querySelector("prm-search-result-availability-line .layout-align-start-start .layout-row");
+
+                  if (contentLinkElement) {
+                    contentLinkElement.remove();
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                })();
+              }
+
+              if (template) {
+                var element = getElement(scope);
+
+                (function poll() {
+                  var elementParent = getElementParent(element);
+                  var quickLinkElement = elementParent.querySelector("prm-quick-link");
+
+                  if (quickLinkElement) {
+                    quickLinkElement.remove();
+                  } else {
+                    requestAnimationFrame(poll);
+                  }
+                })();
+              }
+            }
+          };
+
+          requestUnpaywall.send();
+        }
+      }
+    };
+
+    request.send();
+  };
+
+  return {
+    searchResult: searchResult,
+    urlRewrite: urlRewrite,
+    libraryIdOverride: libraryIdOverride,
+    getResult: getResult,
+    isArticle: isArticle,
+    isJournal: isJournal,
+    getIssn: getIssn,
+    getDoi: getDoi,
+    isFiltered: isFiltered,
+    getEndpoint: getEndpoint,
+    getUnpaywallEndpoint: getUnpaywallEndpoint,
+    shouldEnhance: shouldEnhance,
+    getData: getData,
+    getIncludedJournal: getIncludedJournal,
+    getBrowZineWebLink: getBrowZineWebLink,
+    getCoverImageUrl: getCoverImageUrl,
+    getBrowZineEnabled: getBrowZineEnabled,
+    isDefaultCoverImage: isDefaultCoverImage,
+    getDirectToPDFUrl: getDirectToPDFUrl,
+    getUnpaywallUsable: getUnpaywallUsable,
+    getArticleLinkUrl: getArticleLinkUrl,
+    getArticleRetractionUrl: getArticleRetractionUrl,
+    getArticleEOCNoticeUrl: getArticleEOCNoticeUrl,
+    isUnknownVersion: isUnknownVersion,
+    isTrustedRepository: isTrustedRepository,
+    getUnpaywallArticlePDFUrl: getUnpaywallArticlePDFUrl,
+    getUnpaywallArticleLinkUrl: getUnpaywallArticleLinkUrl,
+    getUnpaywallManuscriptArticlePDFUrl: getUnpaywallManuscriptArticlePDFUrl,
+    getUnpaywallManuscriptArticleLinkUrl: getUnpaywallManuscriptArticleLinkUrl,
+    showJournalCoverImages: showJournalCoverImages,
+    showJournalBrowZineWebLinkText: showJournalBrowZineWebLinkText,
+    showArticleBrowZineWebLinkText: showArticleBrowZineWebLinkText,
+    showDirectToPDFLink: showDirectToPDFLink,
+    showArticleLink: showArticleLink,
+    showPrintRecords: showPrintRecords,
+    showRetractionWatch: showRetractionWatch,
+    showExpressionOfConcern: showExpressionOfConcern,
+    showFormatChoice: showFormatChoice,
+    showLinkResolverLink: showLinkResolverLink,
+    enableLinkOptimizer: enableLinkOptimizer,
+    transition: transition,
+    directToPDFTemplate: directToPDFTemplate,
+    articleLinkTemplate: articleLinkTemplate,
+    retractionWatchLinkTemplate: retractionWatchLinkTemplate,
+    eocLinkTemplate: eocLinkTemplate,
+    browzineWebLinkTemplate: browzineWebLinkTemplate,
+    unpaywallArticlePDFTemplate: unpaywallArticlePDFTemplate,
+    unpaywallArticleLinkTemplate: unpaywallArticleLinkTemplate,
+    unpaywallManuscriptPDFTemplate: unpaywallManuscriptPDFTemplate,
+    unpaywallManuscriptLinkTemplate: unpaywallManuscriptLinkTemplate,
+    isUnpaywallEnabled: isUnpaywallEnabled,
+    getElement: getElement,
+    getElementParent: getElementParent,
+    getScope: getScope,
+  };
+}());
+”ò¿Ÿ,          mæ—      browzine   ÔÂC±      primo      ñB2	      libraryId      Y†Y$      api    Íhn      libraryIdOverride      G%
+      urlRewrite     S∞◊ü      apiKey     ⁄Eú¡      indexOf    lôŸ      staging-api.thirdiron.com	      û–Î      public-api.thirdiron.com
+   úÊQ      api.thirdiron.com      Ø 5O      override   ¸-…      baseUrl    vô<]@      https://public-api.thirdiron.com/public/v1/libraries/{libraryId}   ‡ER      {libraryId}    ¥xû	      getResult      ƒ›·	      scope      ˝ÑÃ∫      item   0ª«	      isArticle      z–w
+      validation     QÕB˚      pnx    e}ü      display    Yì      contentType    óñôb      trim   RâDo      toLowerCase    I`¯ö      article    ìÜ¨A	      isJournal      >Qñ∞      journal    Õìf      getIssn    rì÷Ë      issn   ≤#"      addata     >	≈      filter      ~-Ü|      [\S]{4}\-[\S]{4}!   ?ùv      eissn"      öe÷N      getDoi#     h¢Ë      doi$    k’      getEndpoint%    mµ9      endpoint&   Ìyaü      /search?issns='     ‡∂å      /articles/doi/(     mÍu)      ?include=journal,library)   [Uär      &access_token=*     .©2      getUnpaywallEndpoint+   <€Ò      email,      ó∑Ù      unpaywallEmailAddressKey-   ƒª∏      https://api.unpaywall.org/v2/.      fÙzb      ?email=/    “œü      getData0    âOÁù      response1   6ó(Å      data2   ¢]¡Ï      isArray3    ˆôß      browzineEnabled4    ¶i4      pop5    QŸ      getIncludedJournal6     Ò»œ      included7   ÛO∆      getBrowZineWebLink8     )»±ø      browzineWebLink9    ≥ûp      getCoverImageUrl:   Ó-É      coverImageUrl;      4÷ﬂ      getBrowZineEnabled<     U0h4      isDefaultCoverImage=    è‹‡.      defaultCoverImage>      ≈aOJ      getDirectToPDFUrl?      w	’>      directToPDFUrl@     …o¯å      fullTextFileA   Z∫§g      getUnpaywallUsableB     @∆/       unpaywallUsableC    †~4      getArticleLinkUrlD      W37È      articleLinkUrlE     T≈
+      contentLocationF    ﬂWÃÇ      getArticleRetractionUrlG    0¨Öê      articleRetractionUrlH   @Á+      retractionNoticeUrlI    ¨é˙¸      getArticleEOCNoticeUrlJ     Ìdv      articleEocNoticeUrlK    ¯ıâ      expressionOfConcernNoticeUrlL   EW‰≥%      getProblematicJournalArticleNoticeUrlM      Ûi∆"      problematicJournalArticleNoticeUrlN     Úvhe      isTrustedRepositoryO    cóï      best_oa_locationP   ÀU      url_for_pdfQ    ¿ú/      nih.govR    #˛÷"      europepmc.orgS      æìO      isUnknownVersionT   èæ_„      versionU    ç‘Sq      getUnpaywallArticlePDFUrlV      ≈Åä	      host_typeW      ”À&	      publisherX      Kì»D
+      repositoryY     £aUÅ      publishedVersionZ   ‰ gˆ      getUnpaywallArticleLinkUrl[     ßëu      url_for_landing_page\   2Â≠˛#      getUnpaywallManuscriptArticlePDFUrl]    ™Äπ      acceptedVersion^    gâœ$      getUnpaywallManuscriptArticleLinkUrl_   bÄ      showJournalCoverImages`     Äñ¶      featureEnableda     ~û4      configb     gËX™      journalCoverImagesEnabledc      V⁄ô.      showJournalBrowZineWebLinkTextd     Ç†
+!      journalBrowZineWebLinkTextEnablede      £Æg      showArticleBrowZineWebLinkTextf     ÇÏÚ!      articleBrowZineWebLinkTextEnabledg      Ì9      showDirectToPDFLinkh    H› Ô      articlePDFDownloadLinkEnabledi      L|      prefixConfigj   ÎïÒ≥"      primoArticlePDFDownloadLinkEnabledk     @£ô      showArticleLinkl    q˝%ê      articleLinkEnabledm     Ø‹eo      showPrintRecordsn   ”yÖ      printRecordsIntegrationEnabledo     v»^      showRetractionWatchp    •∆nO      articleRetractionWatchEnabledq      ,wò{      showExpressionOfConcernr    ÛÍ0â!      articleExpressionOfConcernEnableds      …'•ú      showFormatChoicet   “˝âI      showLinkResolverLinku   dÁW      enableLinkOptimizerv    }*%f
+      isFilteredw     ˚•0w      deliveryx   4∫Ì      deliveryCategoryy   ∞®˝      alma-pz     Ã∏
+      transition{     II∑P      event|      ›r¡∫      anchor}     B9∫¿      preventDefault~     ı/F/      stopPropagation    ¯2áâ      windowÄ     óx5      openÅ   ª©`X      hrefÇ   ÷˚yæ      showRetractionWatchUIÉ      —¸Ñz      showEocNoticeUIÑ    ÙHÑ%      showProblematicJournalArticleNoticeUIÖ      ˆ–Y      directToPDFTemplateÜ    f¯=      pdfIconá    ç‚¯O      https://assets.thirdiron.com/images/integrations/browzine-pdf-download-icon.svgà    Ä<      pdfIconWidthâ   ±§√—      pdfIconMarginRightä     <è      4.5pxã      äùD      articlePDFDownloadLinkTextå     jr`©      primoArticlePDFDownloadLinkTextç    V"£¬      Download PDFé   ä!S      https://assets.thirdiron.com/images/integrations/browzine-retraction-watch-icon.svgè    °àSK      1.5pxê      Í§2ø      articleRetractionWatchTextë     ⁄+      Retracted Articleí      GEÂ˘      articleExpressionOfConcernTextì     €÷Á      Expression of Concernî      v’6®      problematicJournalTextï     _ã≠¡      Problematic Journalñ    êséÍ      templateû   ¥D+ì      {directToPDFUrl}ü   û<      {articlePDFDownloadLinkText}†   m©5_	      {pdfIcon}°      èO7      {pdfIconWidth}¢     ´íˆÕ      {pdfIconMarginRight}£   íñ‡      articleLinkTemplate§    N*[¢      linkIcon•    XáO      https://assets.thirdiron.com/images/integrations/browzine-article-link-icon.svg¶    Üô7©      linkIconWidthß      ﬂ„<      linkIconMarginRight®    vû15      articleLinkText©    .©`      Read Article≠   I@ú      {articleLinkUrl}Æ   eï∑      {articleLinkText}Ø      H0Ω
+      {linkIcon}∞     ¡DB      {linkIconWidth}±    öÏL      {linkIconMarginRight}≤      Dèß      retractionWatchLinkTemplate≥    Á«$      eocLinkTemplate¥    ¿
++      problematicJournalArticleNoticeLinkTemplateµ    Àƒdã      browzineWebLinkTemplate∂    ˇ≠ìk      browzineWebLinkText∑    $ıúZ      bookIcon∏   Ö—ÌL      https://assets.thirdiron.com/images/integrations/browzine-open-book-icon.svgπ   <ï£      journalBrowZineWebLinkText∫     âyˇ      primoJournalBrowZineWebLinkTextª    éÈh      View Journal Contentsº      ÕÍ™      articleBrowZineWebLinkTextΩ     u¡-√      primoArticleBrowZineWebLinkTextæ    @˙       View Issue Contents√    ﬂáŸ      {browzineWebLink}ƒ      ˛.jß      {browzineWebLinkText}≈      £]r¸
+      {bookIcon}∆     f⁄»Ø      unpaywallArticlePDFTemplate«    ß€|A"      articlePDFDownloadViaUnpaywallText»     Øás^      Download PDF (via Unpaywall)    b:P…      unpaywallArticleLinkTemplateÀ   œº      articleLinkViaUnpaywallTextÃ    sÑ0$      Read Article (via Unpaywall)œ   _òÚ<      unpaywallManuscriptPDFTemplate–     ¢:uÒ,      articleAcceptedManuscriptPDFViaUnpaywallText—   £Qì0      Download PDF (Accepted Manuscript via Unpaywall)”   AGâR      unpaywallManuscriptLinkTemplate‘    œıÚÃ4      articleAcceptedManuscriptArticleLinkViaUnpaywallText’   ÿJÏÛ0      Read Article (Accepted Manuscript via Unpaywall)◊   ìy◊      isUnpaywallEnabledÿ     ≤ıl±%      articlePDFDownloadViaUnpaywallEnabledŸ      y©      articleLinkViaUnpaywallEnabled⁄     °πG/      articleAcceptedManuscriptPDFViaUnpaywallEnabled€    m¬7      articleAcceptedManuscriptArticleLinkViaUnpaywallEnabled‹    ¡¿ 
+      getElement›     µ—ë      $elementﬁ   és∏®      getElementParentﬂ   ‘t™      offsetParent‡   ´œ*È      getScope·   )ŒË      $scope‚     (˘Ö0      $ctrl„      ö+¶.
+      parentCtrl‰     L¨.1      $parentÂ    ~0¡      shouldEnhanceÊ      ®Ï|f      shouldAvoidUnpaywallÁ   O3D†      avoidUnpaywallË     ’4°¡      shouldIgnoreUnpaywallResponseÈ      :c      unpaywallResponseÍ      ™ Z      avoidUnpaywallPublisherLinksÎ   ËÄØ0      searchResultÏ   l(      requestÌ    ⁄$€      XMLHttpRequestÓ     ≈ô¸
+      GETÔ    f–ˇ      setRequestHeader   mDo      Content-typeÒ   2Sb3      application/jsonÚ   áƒ{p      onloadÛ     πUüï
+      readyStateÙ     3Ωhw      DONEı   5ıá∆      parseˆ      ÏûE(      libKeyLinkOptimizer˜    ∏OÄ      document¯   DC      createElement˘      ú≥ÊŸ      div˙    6CY>	      className˚      5E.ê      libkey-link-optimizer¸      ÙΩö+      display: flex; justify-content: flex-start;˝    Q√:	      innerHTML˛      ∞<m      pollˇ   Ö]¸      elementParent      4≈Ä0      availabilityLine  ÿ1:Ú      querySelector     c(ﬁ=      prm-search-result-availability-line .layout-align-start-start     ¿A›ë      insertAdjacentHTML    1€0K
+      afterbegin    vÎ(¿	      outerHTML     ∑ä¨R      requestAnimationFrame     ‹B-      append    Ê
+≥…      coverImages	   #•ç      querySelectorAll
+  uPqè)      prm-search-result-thumbnail-container img     ˙ûVﬂ      fan-img   ÎÕ-
+      coverImage    ú∑»õ      src   ˛U      contentLinkElement    bÑÉnI      prm-search-result-availability-line .layout-align-start-start .layout-row     *N∑∆      remove    §Ò®      quickLinkElement  ¢œ'ü      prm-quick-link    ıeıb      {}    ±äÆ      shouldAvoidUnpaywallLiveCall  ‰Ö“∏      requestUnpaywall  7kˆ      responseUnpaywall     ≤d¡
+      unpaywallArticlePDFUrl    à’1Ë      unpaywallArticleLinkUrl   /ê⁄       unpaywallManuscriptArticlePDFUrl  BΩX!      unpaywallManuscriptArticleLinkUrl     ø„P      pdfAvailable  ¸,∏      send  p±l[—     <div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'><a class='browzine-direct-to-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> <span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>     7,Ÿ     <div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'><a class='browzine-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: {linkIconMarginRight};' aria-hidden='true' width='{linkIconWidth}' height='16'/> <span class='browzine-article-link-text'>{articleLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>     ìïHÛî     <div class='browzine' style='line-height: 1.4em;'><a class='browzine-web-link' href='{browzineWebLink}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine Book Icon' src='{bookIcon}' class='browzine-book-icon' style='margin-bottom: -2px; margin-right: 2.5px;' aria-hidden='true' width='15' height='15'/> <span class='browzine-web-link-text'>{browzineWebLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2Ÿò&g,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>   ¸«>Ï–     <div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'><a class='unpaywall-article-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> <span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>!  œ*B‹Ω     <div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'><a class='unpaywall-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: 4.5px;' aria-hidden='true' width='12' height='16'/> <span class='browzine-article-link-text'>{articleLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>"     R§‰^€     <div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'><a class='unpaywall-manuscript-article-pdf-link' href='{directToPDFUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine PDF Icon' src='{pdfIcon}' class='browzine-pdf-icon' style='margin-bottom: -3px; margin-right: {pdfIconMarginRight};' aria-hidden='true' width='{pdfIconWidth}' height='16'/> <span class='browzine-web-link-text'>{articlePDFDownloadLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>#   &exD»     <div class='browzine' style='line-height: 1.4em; margin-right: 4.5em;'><a class='unpaywall-manuscript-article-link' href='{articleLinkUrl}' target='_blank' onclick='browzine.primo.transition(event, this)'><img alt='BrowZine Article Link Icon' src='{linkIcon}' class='browzine-article-link-icon' style='margin-bottom: -3px; margin-right: 4.5px;' aria-hidden='true' width='12' height='16'/> <span class='browzine-article-link-text'>{articleLinkText}</span> <md-icon md-svg-icon='primo-ui:open-in-new' class='md-primoExplore-theme' aria-hidden='true' style='height: 15px; width: 15px; min-height: 15px; min-width: 15px; margin-top: -2px;'><svg width='100%' height='100%' viewBox='0 0 24 24' y='504' xmlns='http://www.w3.org/2000/svg' fit='' preserveAspectRatio='xMidYMid meet' focusable='false'><path d='M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'></path></svg></md-icon></a></div>$  ‚î?¶      browzine.primo<%   .j‰       getIssn/issn<&     j´ê      getData/data<'      ÿèz      searchResult/request.onload)   °B·A      searchResult/request.onload/<*     ]√—3      searchResult/request.onload/requestUnpaywall.onload     J   t  O   J   1          Ô%,â                              =                                                                                                                                           	                 
+                                                                                                                                                                                                                                                                                                                                                                                                        !                 "                 #                 $                 %                 &                 '                 (                 )                 *                 +                 ,                 -                 .                 /                 0                 1                 2                 3                 4                 5                 6                 7                 8                 9                 :                 ;                 <                 =                 >                 ?                 @                A      A          B      B                C           C      B                E           D      F           E      B          F      H                I           G      H                K           H      H                M           I      ≥Oåc            @              ‡  P‹  P;  P  Â  PU  PÑ  Po  PZ  P≥  Pg  P”  Pt  P  P_  P≤  P£  P5  PÎ  q  P  Pµ  P◊  P\  Pv  Pœ  P*  PÉ  PL  P7  P"  P/  P  Ps  P<  P  ^  PI  P  Pk  PÊ  Pﬁ  PA  Pc  P  PÖ  PN  P¥  P9  P  $  PF  P  PS  Pu  P>  PÇ  Pm  P∆  PË  Pz  C  Pe  P   P             <              <                                       œ                    œ                    œ                                              #  œ                %    #                %  +  #              0  1                             0                1  8                1    :                1    3              :  =                1  ?                 1                1  D                1  G                1  J                1  M              0                0                0  <              0  <              0  <              0  <                `  a                `  a                `  a                `  a  i                `  a                `  a                `  a                `  a                `  a                `  a                `  a                  œ  x               {  |               G               J               M  	            ?  G  J  M  Ü  à  â  ã  ñ  	            D  G  J  M  §  ¶  ß  ®  ñ              G  D  §  ¶  ß  ®  ñ              J  D  §  ¶  ß  ®  ñ              M  D  §  ¶  ß  ®  ñ                8  ∂  ∑  ñ  	            ?  G  J  M  Ü  à  â  ã  ñ              D  §  ®  ñ  	            ?  G  J  M  Ü  à  â  ã  ñ              D  §  ®  ñ                                              à               ·                                 0               0  È              ·    P%  Ï  P              0  P1  P  8  :  P3  =  ?  B  D  G  J  M  à  `ˆ  Pñ  ˇ     %   P          ˛                ˇ              ˛                ˇ                    	                G  J  M  ñ  P à  `          ˛                ˇ              ˛                ˇ             ˛                ˇ   Ø¬0∞            -            -     û     ü     †     °     ¢     ≠     Æ     Ø     ∞     ±     ≠     Æ     Ø     ∞     ±     ≠     Æ     Ø     ∞     ±     ≠     Æ     Ø     ∞     ±     √     ƒ     ≈     û     ü     †     °     ¢     ≠     Æ     Ø     û     ü     †     °     ¢     ≠     Æ     Ø     IÙ$KEÆ˙ö        6       Î              "  v  $  *  Â  /  5  7  9  ;  <  >  A  C  F  I  S  N  U  Z  \  ^  _  c  e  g  k  m  o  q  s  t  u  z  Ö  £  ≤  ≥  µ  ∆     œ  ”  ◊  ‹  ﬁ  ‡  á&’™ç!´!J   @     Ÿ9§@                             ª   m    s  L   ﬂ•`KÄ ÃPP®  ∫JQä®  ˘         
+       ?        m   Õ  ﬂm   Õ   ﬂm   Œ 2  ﬂm   Œ %  ﬂm   Œ    ﬂm   Œ +  ﬂm   Œ   ﬂm   Œ 0  ﬂm	   Œ   ﬂm
+   Œ   ﬂm   Œ   ﬂm   Œ   ﬂm   Œ /  ﬂm   Œ   ﬂm   Œ "  ﬂm   Œ 5  ﬂm   Œ )  ﬂm   Œ :  ﬂm   Œ 1  ﬂm   Œ $  ﬂm   Œ   ﬂm   Œ -  ﬂm   Œ 3  ﬂm   Œ   ﬂm   Œ 	  ﬂm   Œ   ﬂm   Œ #  ﬂm   Œ   ﬂm   Œ *  ﬂm   Œ ;  ﬂm   Œ   ﬂm    Œ &  ﬂm!   Œ 7  ﬂm"   Œ   ﬂm#   Œ   ﬂm$   Œ !  ﬂm%   Œ   ﬂm&   Œ 4  ﬂm'   Œ   ﬂm(   Õ  ﬂm)   Œ 6  ﬂm*   Œ   ﬂm+   Œ   ﬂm,   Œ ,  ﬂm-   Œ   ﬂm.   Œ   ﬂm/   Œ 
+  ﬂm0   Œ .  ﬂm1   Œ   ﬂm2   Œ 8  ﬂm3   Œ <  ﬂm4   Œ   ﬂm5   Œ   ﬂm6   Œ   ﬂm7   Œ   ﬂm8   Œ (  ﬂm9   Œ   ﬂm:   Œ   ﬂm;   Œ '  ﬂm<   Œ 9  ﬂm=   Õ  ﬂª>   J?   Õ  ﬂæ    æ   ª>   J@   s s Œ   ﬂª>   JA   Œ   ﬂ9B   æ  <C   æ  <D   æ   <E   ¡ 2  <F   ¡ %  <G   ¡    <H   ¡ +  <I   ¡   <J   ¡   <K   ¡ 0  <L   ¡   <M   ¡   <N   ¡   <O   ¡   <P   ¡   <Q   ¡ /  <R   ¡   <S   ¡ "  <T   ¡ 5  <U   ¡ )  <V   ¡ :  <W   ¡ 1  <X   ¡ $  <Y   ¡ 3  <Z   ¡ -  <[   ¡   <\   ¡ 	  <]   ¡   <^   ¡ #  <_   ¡   <`   ¡ *  <a   ¡ ;  <b   ¡   <c   ¡ &  <d   ¡ 7  <e   ¡   <f   ¡   <g   ¡ !  <h   ¡   <i   ¡ 4  <j   æ  <k   ¡ ,  <l   ¡   <m   ¡   <n   ¡ 
+  <o   ¡   <p   ¡ 8  <q   ¡ <  <r   ¡   <s   ¡   <t   ¡   <u   ¡   <v   ¡ (  <w   ¡   <x   ¢•ˇˇˇˇˇ† `/`
+ˇˇˇıPˇˇˇˇP)`ê0000.0?0`0o0Ä  Ü0Ä  í0Ä  †0Ä  ™0Ä  ¥0Ä  Ã0Ä  ﬁ0Ä  Ë0Ä  Ù0Ä  ˛0Ä 
+0Ä 0Ä 80Ä D0Ä T0Ä d0Ä t0Ä Ñ0Ä è0Ä ö0Ä •0Ä µ0Ä ¿0Ä À0Ä ÷0Ä ·0Ä Ï0Ä ˜0Ä 0Ä 0Ä  0Ä W0Ä Ç0Ä ö0Ä ≤0Ä  0Ä Ê0Ä 0Ä %0Ä P0Ä c0Ä í0Ä ¶0Ä í `%)))*************************************)************QÄ‘   '™Œ†‘   ã                         º  õ   ó    ¢ô-   ó   º  ·J   ‰   s ˇö   ó   º  ¢ó   º  ·J   ‰   s ˇö   ó	   º  ô!   ó	   º  ·J   ‰      s ó   ¢• 	`-`AK`Pê `CF`P± 5P(QÄÄÄò   ´°¿⁄ò   V                        º  Õ   ﬂª   J   Õ  ﬂæ  ö0   ó      Õ  ﬂæ  ·J   ‰l   æ  s Õ   ﬂó   æ   ¢• `(`O	`.`*`ˇˇˇËPM	`$QL   ®˜¯¡L   "                         º  J   ù   ó   ﬂº  J   ó   ¢• `† QÄÄ0  ⁄?5´0  ÿ                        Õ   ﬂ¡ 2   º  s Õ  ﬂæ  ú   ó   ﬂæ  J   ó   öô   ó   æ  J   J   ú   ó   ﬂæ  J   J   J   ó
+   ö^   ó   æ  J   J   J   K·J   ‰s  ·J   ‰s  Õ  ﬂæ  ·J   ‰   s ˇö   ó   Õ   ﬂó   æ   ¢• `&`
+ˇˇˇˇPH	`ß `ª `ú P
+PH`ê Pê `K`$QÄÄÄ0  ⁄?5´0  ÿ                        Õ   ﬂ¡ 2   º  s Õ  ﬂæ  ú   ó   ﬂæ  J   ó   öô   ó   æ  J   J   ú   ó   ﬂæ  J   J   J   ó
+   ö^   ó   æ  J   J   J   K·J   ‰s  ·J   ‰s  Õ  ﬂæ  ·J   ‰   s ˇö   ó   Õ   ﬂó   æ   ¢• `&`
+ˇˇˇˇPH	`ß `ª `ú P
+PH`ê Pê `K`$QÄÄÄ$  G√≥$  u                O          Õ   ﬂ¡ 2   º  s Õ  ﬂæ  ú-   ó   ﬂæ  J   ú   ó   ﬂæ  J   J   ó   ö  ó   æ  J   J   J   ö„   ó   æ  J   J   J   J   öc   ó   æ  J   J   J   ·J   ‰m   s ·J   ‰	   s ·J
+   ‰s  ·J   ‰l      s Õ   ﬂôa   ó   æ  J   J   J   KöB   ó!   æ  J   J   J   K·J
+   ‰s  ·J   ‰      s Õ   ﬂó)   æ  J   J   J   ú   ó-   ﬂæ   ó.   ö„   ó/   æ  J   J   J   J   öc   ó5   æ  J   J   J   ·J   ‰m   s ·J   ‰	   s ·J
+   ‰s  ·J   ‰l      s Õ   ﬂôa   ó@   æ  J   J   J   KöB   óE   æ  J   J   J   K·J
+   ‰s  ·J   ‰      s Õ   ﬂóM   ª    æ   s ¢• `*`
+ˇˇˇˇPH	`¿ `ù `§ `ö %ˇˇˇ˘PJ	U
+
+P
+
+ˇˇˇ¯Pí `ü `ú !Pî PM`û î `§ `ö &ˇˇˇ˘PJU
+
+P
+
+ˇˇˇ¯Pí `ü `ú "Pî PM`ˇˇˇÌP#Q`   Ω^O`   /                         º  J   
+ú   ó   ﬂl   ·J   ‰º  s ó   ¢• `¢ 6ˇˇˇ˚P(QÄ`   Ω^O`   /                         º  J   
+ú   ó   ﬂl   ·J   ‰º  s ó   ¢• `¢ 6ˇˇˇ˚P(QÄ(  o5ª~(  ‘                           Õ   ﬂ¡ 2   º  s Õ  ﬂæ  ú   ó   ﬂæ  J   ó   öà   ó   æ  J   J   ú   ó   ﬂæ  J   J   J   ó
+   öM   ó   æ  J   J   J   Kö.   ó   æ  J   J   J   K·J   ‰s  Õ   ﬂó   ª    æ   s ¢• `*`
+ˇˇˇˇPH	`ß `ª `ü `ú PM`ˇˇˇÌP#QÄÄ  çiûO  [                          Õ   ﬂ¡     º  s ú   ó   ﬂ¡ +   º  s ó   ö0   ó   ¡ +   º  s Õ  ﬂ¡      &æ  &Õ   ﬂó   ¡ %   º  s ú   ó	   ﬂ¡    º  s ó
+   ö6   ó   ¡    º  s Õ  ﬂ¡      &æ  &   &Õ   ﬂó   ¡ %   º  s ú/   ó   ﬂ¡    º  s ú   ó   ﬂ¡ +   º  s ó   ö0   ó   ¡ +   º  s Õ  ﬂ¡      &æ  &Õ   ﬂó   æ      ¡   &&.Õ   ﬂæ   ¢• `J	`
+ˇˇˇˇPî ˇˇˇ¯Pí `ˇˇˇˇP(`$O	`
+ˇˇˇˇPî ˇˇˇ˘Pí `ˇˇˇˇP(`$ï@	`
+ˇˇˇˇPˇˇˇ˘Pï ˇˇˇ¯Pí `ˇˇˇˇP(`$O`	M`$QÄÄÄ‹   ∏ÈJ˜‹   Ü                        ª   J   Õ  ﬂ¡ %   º  s ú&   ó   ﬂ¡    º  s ú   ó   ﬂæ  ó   ö5   ó   ¡    º  s Õ  ﬂ   æ  &   &æ  &Õ   ﬂó   æ   ¢• `O	`
+ˇˇˇˇPî ˇˇˇ˘P° `ˇˇˇˇP(`-O	`$QÄÄ¿   Øõ‘¿   s                        9   Õ   ﬂª   ·J   ‰º  J   s ö5   ó   º  J   ·J   ‰m   s ·J   ‰s  Õ   ﬂô   ó   º  J   Õ   ﬂó   æ   ¢• `J	`ˇˇˇ¯P-`ˇˇˇ˘PJ
+Pí `í@`$QÄ4   ;…ãi4                            º  J   ¢• 	`*QÄ®   ÿòe≠®   j                 
+       Õ   ﬂº  J   öQ   ó   ª   ·J   ‰º  J   s ö   ó   º  J   Kô   ó	   º  J   ó
+   Õ   ﬂó
+   æ   ¢• `F	`í `ˇˇˇ¯P∏@`$QÄÄx   dà¡ x   C                        Õ   ﬂº  ú   ó   ﬂº  J   ó   ö   ó   º  J   Õ   ﬂó   æ   ¢• `F	`• `í@`$QÄ  úI0¥  _                       Õ   ﬂ¡     º  s ú   ó   ﬂ¡ +   º  s ó   ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   ¡ %   º  s ú   ó
+   ﬂ¡    º  s ó   ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   ¡ %   º  s ú/   ó   ﬂ¡    º  s ú   ó   ﬂ¡ +   º  s ó   ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   æ   ¢• `F	`
+ˇˇˇˇPî ˇˇˇ¯Pí `• 	`í@		`
+ˇˇˇˇPî ˇˇˇ˘Pí `• 	`í@	`
+ˇˇˇˇPˇˇˇ˘Pï ˇˇˇ¯Pí `• 	`í@`$QÄÄ¸   ⁄i*‹¸   ¶                        Õ   ﬂ¡     º  s ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   ¡ %   º  s ö<   ó   º ú   ó	   ﬂº J   ó
+   ö   ó   º J   Õ   ﬂó   æ   ¢• `F	`
+ˇˇˇˇP-`• 	`í@		`
+ˇˇˇˇP-`• 	`í@`$QÄÄÄê   +µ.ê   S                        Õ   ﬂº  ú*   ó   ﬂº  ·J   ‰s  ·J   ‰   s ˇó   ö   ó   Õ   ﬂó   æ   ¢• `F	`ò PPï `K`$QÄÄÄò   ´öÛ-ò   Y                        Õ   ﬂ¡ %   º  s ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   æ   ¢• `F	`
+ˇˇˇˇP-`• 	`í@	`$Q∞   aI&∞   a                         ¡ %   º  s õ   ó   ¢ó   º ù   ó   ﬂº ·J   ‰   s ó   ö   ó   ¢ó   º J   ¢• 	`ˇˇˇˆP-`AF	`	Pì `AF`  *QÄÄò   ´öÛ-ò   Y                        Õ   ﬂ¡ %   º  s ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   æ   ¢• `F	`
+ˇˇˇˇP-`• 	`í@	`$Qò   Bõåò   Y                        Õ   ﬂ¡ %   º  s ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   æ   ¢•  `F	`
+ˇˇˇˇP-`• 	`í@	`$Qò   Ysô6ò   Y                        Õ   ﬂ¡ %   º  s ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   æ   ¢• `F	`
+ˇˇˇˇP-`• 	`í@`$Qò   ŒÃ4ò   Y                        Õ   ﬂ¡ %   º  s ö<   ó   º ú   ó   ﬂº J   ó   ö   ó   º J   Õ   ﬂó   æ   ¢• .`F	`
+ˇˇˇˇP-`• 	`í@`$Q‡   åΩ¿‡   û                        Õ   ﬂº  J   ú   ó   ﬂº  J   J   ó   öh   ó   º  J   J   ·J   ‰   s ˇù*   ó   ﬂº  J   J   ·J   ‰   s ˇó   ö   ó   Õ   ﬂó   æ   ¢• `F	`Ø `ô &P™ APï 	`K	`$QÄÄÄú   ∑>¢>ú   d                 
+       Õ   ﬂº  J   öK   ó   º  J   J   ù   ó   ﬂº  J   J      ó	   ö   ó
+   Õ   ﬂó
+   æ   ¢• `F	`í `ª 	`K	`$QÄ(  ?ög(  ÷                        º  J   ö√   ó   º  J   J      ù   ó   ﬂº  J   J      ó	   öÉ   ó
+   º  J   J      ù.   ó   ﬂ¡ 3   º  s ú   ó   ﬂ¡ -   º  s ó   ö3   ó   º  J   J   ö   ó   º  J   J   Õ   ﬂó   æ   ¢•@	`í `¿ `§ NˇˇˇÔPî 2ˇˇˇÏPí `ó `ó@`$QÄÄ‰   ∫	Hº‰   £                        º  J   öê   ó   º  J   J      ù   ó   ﬂº  J   J      ó	   öP   ó
+   º  J   J      ö3   ó   º  J   J   õ   ó   º  J   J   Õ   ﬂó   æ   ¢•@	`í `¿ `ù `ó `ó@`$QÄÄÄ  ¿j  ¥                        º  J   ö°   ó   º  J   J      öÑ   ó   º  J   J      ù/   ó
+   ﬂ¡ 3   º  s ú   ó   ﬂ¡ -   º  s ó   ö3   ó   º  J   J   ö   ó   º  J   J   Õ   ﬂó   æ   ¢•@	`í `ù `§ MˇˇˇÔPˇˇˇÏPì `ó `ó@`$QÄÄÄ¿   ∆±—¿   Ä                        º  J   öm   ó   º  J   J      öP   ó   º  J   J      ö3   ó
+   º  J   J   õ   ó   º  J   J   Õ   ﬂó   æ   ¢•@	`í `ù `ù `ó `ó@`$QÄÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄ   i¡ü   Æ                         Õ   ﬂª   J   Õ  ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó	   ö   ó
+   Õ   ﬂó
+   æ  Äú"   ó   ﬂæ  ú   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`/`O	`∑ `K		`∑ `K`$QÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄî   °\kXî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O`∑ `@`$Ql   Íhe0l   6                         Õ   ﬂª   J   Õ  ﬂæ  ö   ó   Õ   ﬂó   æ   ¢• `&`O	`ê `K`$Qî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄî   ìÌåî   ]                         Õ   ﬂª   J   Õ  ﬂæ   ù"   ó   ﬂæ  ù   ó   ﬂæ  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`O	`∑ `K`$QÄ<  ªÒM<  „                        Õ   ﬂ¡ 2   º  s Õ  ﬂæ  ú   ó   ﬂæ  J   ó   ö§   ó   æ  J   J   ú    ó   ﬂæ  J   J   J   ó   ög   ó   æ  J   J   K·J   ‰s  ·J   ‰s  Õ  ﬂæ     ú   ó   ﬂ¡ 7   s  ó   ö   ó   Õ   ﬂó   æ   ¢• `&`
+ˇˇˇˇPH	`ß `Ω  `ó $P
+PH`ï !Pì `K`$QÄÄÑ   ÑwyÑ   ?                  	       º  ·J   ‰w  ﬂº  ·J   ‰w  ﬂª   ·J   ‰º J   º J   w ﬂ¢•@`
+P$`
+PD`ˇˇˇÓPD
+`!QÄÄL   ¿ΩÒmL                            º  ú   ó   ﬂ¡    s  ó   ¢• `î P(QÄÄÄL   ØÙ÷⁄L                            º  ú   ó   ﬂ¡    s  ó   ¢• `î P(QÄÄÄ4   ¨ı4                            º  ¢• `  %QÄÄ¯  3Èo¡¯  (         	                 Õ   ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù%   ó   ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ¡ 6   º s öX   ó   º Ã  ﬂ   Õ   ﬂ	   Õ  ﬂ
+   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂô“   ó   ¡    º s öX   ó   º Ã  ﬂ   Õ   ﬂ	   Õ  ﬂ
+   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂôi   ó   ¡    º s öS   ó   º Ã  ﬂ   Õ   ﬂ	   Õ  ﬂ
+   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂó      Õ  ﬂæ  ·J   ‰l   º  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ   s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `*`*`*&`π@	`ˇˇˇˇP-`'`*`*`*`Æ `ˇˇˇˇP-`'`*`*`*`Æ `&ˇˇˇˇP-`'`*`*`*`©@`J"`ˇˇˇ„P(`!ˇˇˇ◊P(`ˇˇˇÍP(`ˇˇˇÂP(`ˇˇˇﬂPH(`$QÄÄÄ‡  ÊÎ‡           	                 Õ   ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ¡ 6   º s öX   ó   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J
+   ù   ó   ﬂ   ó   Õ  ﬂô“   ó   ¡    º s öX   ó
+   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂôi   ó   ¡    º s öS   ó   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂó      Õ  ﬂæ  ·J   ‰l   º  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ   s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `*`*`*`§@	`ˇˇˇˇP-`'`*`*`*`Æ `ˇˇˇˇP-`'`*`*`*`Æ `&ˇˇˇˇP-`'`*`*`*`©@`J"`ˇˇˇ„P(`ˇˇˇ‚P(`ˇˇˇÈP(`ˇˇˇ‰P(`ˇˇˇﬁPH(`$Qd  Q;Âd  Ê          
+              º  Õ   ﬂ   Õ  ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ   Õ  ﬂæ  ·J   ‰l	   æ   s Õ  ﬂæ  ·J   ‰l
+   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `(`*`*`*`§@`J`ˇˇˇ„P(`ˇˇˇ‚P(`ˇˇˇÈP(`ˇˇˇ‰P(`ˇˇˇﬁPH`$Qd  Q;Âd  Ê          
+              º  Õ   ﬂ   Õ  ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ   Õ  ﬂæ  ·J   ‰l	   æ   s Õ  ﬂæ  ·J   ‰l
+   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `(`*`*`*`§@`J`ˇˇˇ„P(`ˇˇˇ‚P(`ˇˇˇÈP(`ˇˇˇ‰P(`ˇˇˇﬁPH`$Qd  Q;Âd  Ê          
+              º  Õ   ﬂ   Õ  ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ   Õ  ﬂæ  ·J   ‰l	   æ   s Õ  ﬂæ  ·J   ‰l
+   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `(`*`*`*`§@`J`ˇˇˇ„P(`ˇˇˇ‚P(`ˇˇˇÈP(`ˇˇˇ‰P(`ˇˇˇﬁPH`$Qú  r`'ú                            Õ   ﬂ   Õ  ﬂ¡     º  s öC   ó   ª   J   ù%   ó   ﬂª   J   ù   ó   ﬂ   ó   Õ   ﬂó   ¡ %   º  s öC   ó
+   ª   J   ù%   ó   ﬂª   J   ù   ó   ﬂ	   ó   Õ   ﬂó   
+   Õ  ﬂæ  ·J   ‰l   º s Õ  ﬂæ  ·J   ‰l   æ   s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `*`J	`
+ˇˇˇˇP-`æ@	`
+ˇˇˇˇP-`æ@`J`ˇˇˇ‚P(`ˇˇˇﬁP(`ˇˇˇÈPH`$QÄÄÄ‡  Rõóq‡           	                 Õ   ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ¡ 6   º s öX   ó   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J
+   ù   ó   ﬂ   ó   Õ  ﬂô“   ó   ¡    º s öX   ó
+   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂôi   ó   ¡    º s öS   ó   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂó      Õ  ﬂæ  ·J   ‰l   º  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ   s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `*`*`*&`§@	`ˇˇˇˇP-`'`*`*`*`Æ `ˇˇˇˇP-`'`*`*`*`Æ `&ˇˇˇˇP-`'`*`*`*`©@`J"`ˇˇˇ„P(`!ˇˇˇ◊P(`ˇˇˇÍP(`ˇˇˇÂP(`ˇˇˇﬂPH(`$QÏ   Ò·CúÏ   ë                 	          Õ   ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ   Õ  ﬂæ  ·J   ‰l   º  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l	   æ   s Õ  ﬂæ  ¢• `*`§@`J`ˇˇˇ„P(`ˇˇˇ‚P(`ˇˇˇÈPH`$QË  õ$®Ë           	                 Õ   ﬂ   Õ  ﬂ   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ¡ 6   º s öX   ó   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J
+   ù   ó   ﬂ   ó   Õ  ﬂôŸ   ó   ¡    º s öX   ó
+   º Ã  ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂôp   ó   ¡    º s öZ   ó   ∑   º     ﬂ   Õ   ﬂ   Õ  ﬂ	   Õ  ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂó      Õ  ﬂæ  ·J   ‰l   º  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ   s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ¢• `*`*`*&`§@	`ˇˇˇˇP-`'`*`*`*`Æ `ˇˇˇˇP-`'`*`*`*`Æ `&ˇˇˇˇP-`.`*`*`*`©@`J"`ˇˇˇ„P(`!ˇˇˇ◊P(`ˇˇˇÍP(`ˇˇˇÂP(`ˇˇˇﬂPH(`$QÄÏ   Ò·CúÏ   ë                 	          Õ   ﬂª   J   ù   ó   ﬂ   ó   Õ  ﬂ   Õ  ﬂæ  ·J   ‰l   º  s Õ  ﬂæ  ·J   ‰l   æ  s Õ  ﬂæ  ·J   ‰l	   æ   s Õ  ﬂæ  ¢• `*`§@`J`ˇˇˇ„P(`ˇˇˇ‚P(`ˇˇˇÈPH`$Qx   Fë‡x   P                          ª   J   ù?   ó   ﬂª   J   ù*   ó   ﬂª   J   ù   ó	   ﬂª   J   ó   ¢• `Œ Q4   ™ı=ﬂ4   
+                         º  J   ¢• `(QÄÄÄL   UÈ˛‚L   !                         º  KJ   ù   ó   ﬂº  Kó   ¢• `ü QÄÄÄ–  bÃ(Ú–  ä                *       º  úH   ó   ﬂº  J   ú5   ó   ﬂº  J   J   ú   ó   ﬂº  J   J   J   ó	   ö!   ó
+   º  J   J   Õ   ﬂô  ó   º  úH   ó   ﬂº  J   ú5   ó   ﬂº  J   J   ú   ó   ﬂº  J   J   J   ó   ö!   ó   º  J   J   Õ   ﬂôù   ó   º  új   ó   ﬂº  J   úW   ó   ﬂº  J   J   ú?   ó   ﬂº  J   J   J   ú"   ó"   ﬂº  J   J   J   J   ó&   ö!   ó'   º  J   J   J   Õ   ﬂó*   æ   ¢•@	`⁄@`ú `⁄@`ú `¸@`ú@ `$QÄ|  rc€H|  Ò                        Õ   ﬂ¡    º  s õ‘   ó   ¡     º  s ú   ó   ﬂ¡ +   º  s ó   ö   ó   Õ   ﬂó   ¡ %   º  s ú   ó   ﬂ¡    º  s ó	   ö   ó
+   Õ   ﬂó
+   ¡ %   º  s ú/   ó   ﬂ¡    º  s ú   ó   ﬂ¡ +   º  s ó   ö   ó   Õ   ﬂó   æ   ¢• `F	`ˇˇˇıP-`
+ˇˇˇˇPî ˇˇˇ¯Pí 	`K`
+ˇˇˇˇPî ˇˇˇ˘Pí 	`K`
+ˇˇˇˇPˇˇˇ˘Pï ˇˇˇ¯Pí 	`K`$Q§   ò9§   c                  	       º  ·J   ‰   s ú"   ó   ﬂº  J   ·J   ‰   s ó   ö   ó   º  J   J   ¢ô   ó	   ¢ó	   • 	`	P¢ (Pí `M; `A6 PÄÄ¿   ñó∏%¿   Ç                         º  ·J   ‰   s ú"   ó   ﬂº  J   ·J   ‰   s ó   öA   ó   º J   ú   ó	   ﬂº J   J      ó   ö   ó   ¢ó   ¢• 	`	P¢ (Pí `µ 	`AF`!QÄ$  ˛omô$  ¨                        ¡   º  s Œ   ﬂ¡   ¡   s õ   ó    ¢ó   ¡0   ¡   s Õ   ﬂª   Ä„  Å  Œ   ﬂ¡   ·J   ‰   æ   w ﬂ¡   ·J   ‰      w ﬂ¡   m   L   ﬂ¡   ·J	   ‰w  ﬂ• `	ˇˇˇˇPI	`ˇˇˇÚP-`AÄ  ŸF`ˇˇˇˇPH	`ì `ë ˇˇˇÙP$`ñ PD`ê@Ä  ÿ`P$PÄ¯  ®.Á7¯  	                º        ¡  J   ª   J   ú   ó   ﬂ¡  J   » ó   öF  ó   ª   ·J   ‰¡  J   s Œ   ﬂ¡   ¡   s Œ   ﬂ¡   ¡   s Õ   ﬂ¡   ¡   s Õ  ﬂ¡/   ¡  ¡   æ   s Œ   ﬂ¡   ¡  ¡   æ   s Õ  ﬂ¡"   ¡   s Õ  ﬂ¡5   ¡  ¡   s Õ  ﬂ¡)   ¡  ¡   s Õ  ﬂ¡:   ¡  ¡   s Õ  ﬂ¡1   ¡  ¡   s Õ  ﬂ¡$   ¡  ¡   s Õ  ﬂ¡   ¡  ¡   s Õ	  ﬂ¡   ¡  s Œ   ﬂª   ·J	   ‰
+   s Œ   ﬂ¡      L   ﬂ¡      L   ﬂæ  ú-   ó   ﬂ¡%   ¡  s ú   ó!   ﬂ¡   s  ó"   ö?   ó#   ¡,   æ  æ  æ  æ	  s Õ
+  ﬂ¡   ·J   æ
+  &.L   ﬂó'   æ  ùD   ó)   ﬂ¡!   s  ú0   ó+   ﬂæ  ú    ó-   ﬂæ  ú   ó/   ﬂæ	  ó0   úP   ó1   ﬂæ  úA   ó2   ﬂ¡%   ¡  s ú(   ó4   ﬂ¡   s  ú   ó6   ﬂ¡&   s  ó7   ö?   ó8   ¡   æ  æ  æ  æ	  s Õ
+  ﬂ¡   ·J   æ
+  &.L   ﬂó<   æ  úL   ó>   ﬂæ  ú<   ó@   ﬂæ  ú-   óA   ﬂ¡%   ¡  s ú   óC   ﬂ¡   s  óD   ö3   óE   ¡   æ  s Õ
+  ﬂ¡   ·J   æ
+  &.L   ﬂóI   æ  ú\   óK   ﬂæ  úL   óM   ﬂæ  ú<   óO   ﬂæ  ú-   óP   ﬂ¡%   ¡  s ú   óR   ﬂ¡   s  óS   ö3   óT   ¡
+   æ  s Õ
+  ﬂ¡   ·J   æ
+  &.L   ﬂóX   æ  úX   óZ   ﬂæ  úH   ó\   ﬂæ  ú8   ó^   ﬂæ  ú(   ó`   ﬂæ	  ú   óa   ﬂ¡%   ¡  s ób   ö3   óc   ¡.   æ	  s Õ
+  ﬂ¡   ·J   æ
+  &.L   ﬂóg   ¡   J   ö   ói   m    w  ﬂój   æ  ú<   ók   ﬂæ  ú-   ól   ﬂ¡    ¡  s ú   ón   ﬂ¡*   s  óo   ö5   óp   ¡   ¡  æ  s Õ
+  ﬂ¡   ·J   ‰æ
+  w ﬂós   æ  ú_   ót   ﬂæ  úP   óu   ﬂ¡%   ¡  s ú7   ów   ﬂæ  ù   óx   ﬂæ  óx   ú   óy   ﬂ¡;   s  óz   ö5   ó{   ¡   ¡  æ  s Õ
+  ﬂ¡   ·J   ‰æ
+  w ﬂó~   ¡   ú$   ó   ﬂæ  ú   óÅ   ﬂ¡   s  óÇ   ö   óÉ   m    w  ﬂóÑ   ¡   s  ú   óá   ﬂæ  ù   óà   ﬂæ  óà   öR   óâ   ¡(   ¡   s Õ  ﬂæ  ·J   ‰   s Õ  ﬂæ  ö   óç   æ  ·J   ‰w  ﬂóè   æ  ù   óê   ﬂæ  óê   ú   óë   ﬂ¡4   s  óí   öR   óì   ¡(   ¡   s Õ  ﬂæ  ·J   ‰   s Õ  ﬂæ  ö   óó   æ  ·J   ‰w  ﬂóô   ¡  J   ª   J   ú   óû   ﬂ¡  J   îó†   ùH   ó°   ﬂ¡%   ¡  s ú/   ó£   ﬂæ  ú   ó•   ﬂæ  ú   óß   ﬂæ  óß   ö  ó®   ª   ·J   ‰¡  J   ù   ó¨   ﬂ   ó¨   s Œ   ﬂ¡'   ¡   s Õ  ﬂæ  ö   óØ    ¢óØ   ¡   ¡  s Õ  ﬂæ  ú   ó±   ﬂ¡   s  ó≤   öq   ó≥   ª   Ä„  Å  Œ   ﬂ¡   ·J   ‰   æ  w ﬂ¡   ·J   ‰      w ﬂ¡   m   L   ﬂ¡   ·J   ‰w  ﬂóº   • `
+≥ `
+ˇˇˇ˙PI`ˇˇˇˇP)`ˇˇˇˇPH`ˇˇˇˇP(`ˇˇˇÚP)`ˇˇˇÚP(!`ˇˇˇˇP(`ˇˇˇ¯P(`ˇˇˇ¯P(`ˇˇˇ¯P($`ˇˇˇ¯P(#`ˇˇˇ¯P(2`&ˇˇˇ¯PH`ˇˇˇˇPI#`ë 	P)	`ê 	`ê@`ï ˇˇˇˆPî Pí `ˇˇˇƒP(`ú@`ñ Pê ê ™ EˇˇˇˆPî Pî Pí `ˇˇˇƒP(`ú@"`ê • 5ˇˇˇˆPî Pí `ˇˇˇˇP(`ú@'`ê ê • :ˇˇˇˆPî Pí `ˇˇˇˇP(`ú@,`ê ê ê • HˇˇˇˆPí `,ˇˇˇˇP(`ú@1`î `F;PI>`§ 0ˇˇˇˆPî Pí `ˇˇˇ¯P(`ˇˇˇ˘PIC`§ 0ˇˇˇˆP∑ :Pí `ˇˇˇ¯P(`ˇˇˇ˘PIH`ê ñ Pí `FTPIW`P± `ˇˇˇˇP($`ê PH[`.`PI``© %Pí `ˇˇˇˇP("`ê PHd`.`PIj`
+∫ <ˇˇˇˆPê £@l`ü ˇˇˇ˙P),`ˇˇˇˇP(`.`AÄ  …Fr`ˇˇˇˇP(`ï Pí "`ì `ë ˇˇˇÙP$`ñ PDx`ê@Ä  ∆`P PÄÄ»   ’zÏ»   r                	        ¡(   ¡   s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ  ö-   ó   æ  ·J   ‰   ¡   J   w ﬂô   ó   ª    ∆w ﬂó	   • !`ˇˇˇˇP($`ê PH`.`ê 2
+ˇˇˇﬂP `ˇˇˇˇPI	PÄÄÄ  Ê˝  µ                        ¡(   ¡   s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ  ú9   ó   ﬂæ  Kú(   ó   ﬂæ  KJ   ·J   ‰   s ˇó   ö2   ó   ª   J   J	   ·J
+   ‰æ  m   w ﬂô   ó   ª    ∆w ﬂó   • !`ˇˇˇˇP(`ê PH`∑ :Pï `ñ ˇˇˇÓP> `ˇˇˇˇPIP8   8O/ó8                            º  ¡   L   ﬂ• `.PÄÄ8  ö!ÿ¶8  ¯      	          5        ¡  J   ª   J   ú   ó   ﬂ¡  J   » ó   öø  ó   ª   ·J   ‰¡  J   s Õ   ﬂ¡9   ¡  æ   s ö   ó    ¢ó   ¡   æ   s Õ  ﬂ¡	   æ   s Õ  ﬂ¡   æ   s Õ  ﬂ¡#   æ   s Õ  ﬂ¡1   ¡  ¡  s Õ  ﬂ¡$   ¡  ¡  s Õ  ﬂ¡   ¡  ¡  s Õ  ﬂÕ  ﬂæ  ú   ó   ﬂª   J	   ó   ö4   ó   ¡8   æ  æ  æ  æ  s Œ   ﬂÕ  ﬂô·   ó   æ  ú   ó   ﬂª   J
+   ó   ö"   ó   ¡<   æ  s Œ   ﬂôú   ó   æ  ú   ó    ﬂª   J   ó"   ö4   ó#   ¡   æ  æ  æ  æ  s Œ   ﬂÕ  ﬂôE   ó$   æ  ú   ó%   ﬂª   J   ó'   ö   ó(   ¡   æ  s Œ   ﬂó)   ¡   ö(   ó*   ¡   ¡  s Œ   ﬂm    w  ﬂó,   ¡   s  ú   ó/   ﬂ¡   ó/   ö(   ó0   ¡   ¡  s Œ   ﬂm    w  ﬂó2   ¡   ö(   ó3   ¡   ¡  s Œ   ﬂm    w  ﬂó5   • `
+≥ '`
+ˇˇˇ˙PH`
+ˇˇˇıP-`ALF,`ˇˇˇˇP(-`ˇˇˇˇP(6`$ˇˇˇˇP(7`%ˇˇˇˇP(*`ˇˇˇ¯P()`ˇˇˇ¯P(8`&ˇˇˇ¯P8 "`F`® `'ˇˇˇ°P)`ê `® `(ˇˇˇ„Pì `® `*"ˇˇˇîP)`ê `® `+ˇˇˇ‡PN`/`ˇˇˇˇPI"`F+PI.`P£ `ˇˇˇˇPI1`F:PI=`/`ˇˇˇˇPI@`FIPILPÄÄ¿   7X˛_¿   m                        ¡(   ¡   s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ  ö(   ó   æ  ·J   ‰   ¡   w ﬂô   ó   ª    ∆w ﬂó   • '`ˇˇˇˇP(*`ê PH`.`ê 2ˇˇˇﬂP `ˇˇˇˇPI	P∞   Ù∏' ∞   c                        ¡(   ¡   s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ  ö   ó   æ  ·J   ‰w  ﬂô   ó   ª    ∆w ﬂó   • '`ˇˇˇˇP(,`ê PH`.`P `ˇˇˇˇPI	P∞   ØàÖ‘∞   c                        ¡(   ¡   s Õ   ﬂæ   ·J   ‰   s Õ  ﬂæ  ö   ó   æ  ·J   ‰w  ﬂô   ó   ª    ∆w ﬂó   • '`ˇˇˇˇP(*`ê PH`.`P `ˇˇˇˇPI	P3ıÿ  `    	  À  
+    `       À     P  `œ      `    "            `    "            `@    P  	  `@    P    `ã         @      p5  ,    À    P-  !  	  p  Pé   
+  `ã       #    é     `ã   &  '  (  )    `   ,  -  .    `3    `   @r  2  1      p4    `6  r  2    `8    `:    `3    `    i     `@    `Ó   B    `E    `H    `K    `M    `O  P    Q  R    `O  T  ã     `O  V  W  X  T  Y  P    `O  V  W  X  T  Y  P  [    `O  V  X  T  ]  P    `O  V  X  T  ]  P  [     `   b  !  `   d  "  `   f  #  `   h  j  $  `   l  %  `   n  &  `   p  '  `   r  (  `   s  )  `   t  *  `   u  +  `w  x  @      y  ,  `}  ~    Ä  Å    -  `.  `/  `0  `á  B  ä     ã  å  ç  é  E  è  ê  ë  í  ì  î  ï   À    P  P  P  P	  P1  `•  B  ä     ®  ©  é  E  è  ê  ë  í  ì  î  ï   À  
+  P  P  P  P  P2  `é  E  è     ê  ë   À    P  P  P  P  P3  `é  E  è     í  ì   À    P  P  P  P  P4  `é  E  è     î  ï   À    P  P  P  P  P5  `ã   ∏     π  ∫  ª  º  Ω  æ   À    P  P   P6  `á  B  ä     «  »  é  E  è  ê  ë  í  ì  î  ï    À  !  P"  P#  P$  P%  P7  `•     À  Ã  ! À  &  P'  P(  P8  `á  B  ä     –  —  é  E  è  ê  ë  í  ì  D  î  ï  " À  )  P*  P+  P,  P-  P9  `•     ‘  ’  # À  .  P/  P0  P:  `   ÿ  Ÿ  ⁄  €  ;  `›  <  `ﬂ  =  `‚  „  ›  ‰  >  `?  `Ó   U  Á  @  `Ó   1  Í  O  V  W  C  `D  `      G  ` E  `F  `	 
+ ˙     r  ∏  ∏   4   E  p I  `J  `     K  `L  `    M  `N  `    H  `Û  Ì  Ù  ¯  t  ı  0     ÿ  Ÿ  ⁄  €  G  pH  pI  pB  `Û  Ì  Ù  ¯  t  ı  0  ˜  ¯  ˘  ˚  ˙  ¸  ˛  ˝  C  p D  p     Ä  Ó  Ô    Ò  F  pÚ   A  `Ì  Ä  Ó  Ô    Ò  B  pÚ     `  p  p  p  p  p  p
+  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p  p   p!  p"  p#  p$  p%  p&  p'  p(  p)  p*  p+  p,  p-  p.  p/  p0  p1  p2  p3  p4  p5  p6  p7  p8  p9  p:  p;  p<  p=  p>  p?  p@  pA  p           @Î              "  v  $  *  Â  /  5  7  9  ;  <  >  A  C  F  I  S  N  U  Z  \  ^  _  c  e  g  k  m  o  q  s  t  u  z  Ö  £  ≤  ≥  µ  ∆     œ  ”  ◊  ‹  ﬁ  ‡     `     p  ˇXÑp                ˜  y   $                                                                              '                    %       #      %       9      "        @      $        F      *        M      /        K      &       U      5        Y      7        [      9        ]      ;        _      <        c      >        e      A        h      C        j      F        l      I        n      L        p      N        v      S        z      U        Ç   	   Z        ã      \        í      ^        ö      _        ù      c        †      e        £      g        ß      k        ™      m        ≠      o        ∞      q        ≥      s        ∂      t        π      u        º      v        √      z               Ç        À      É        Ã      Ñ        Õ      Ö        Â      £        ¸      ≤        
+     ≥             ¥        &     µ        5     ∆        L  
+            V     œ        n  
+   ”        x     ◊        ~     ‹        Ä     ﬁ        Ç     ‡        á     Â        à     Ê        å     Ë        Ì  
+   Î        Õ      '       ì     ˛        ù     ˛        õ     )       Ω     *       ™     ˛        ±     ˛        ∑     ˛        ùH©¿      Iœ      Iœ                Ä   Dœ     Dœ                  ¥   ¥  °   ¥                 ”  Â  π  Â                 ¸  0  Í  0                 G  ª  5  ª                  “  F  ¿  F  1              [  o
+  K  o
+  B               ]  ª  U  ª  I   8            	  x	  	  x	  U   9            É
+  ¥  t
+  ¥  c               Õ    π    r                 "  ı  "  â               7  ;  '  ;  ï               ™  Ó  ¢  Ó  ô   +            [    @    £               9  ﬂ    ﬂ  ≠               ˝    ‰    ∑               ?  ¨  $  ¨  œ               Õ  õ  ±  õ  ·               ∫  Ü  †  Ü  Î               ¶  h  ã  h  ˜               á  Y  m  Y                ~  j  ^  j    #            é  à  o  à    "            ∫  Ì  å  Ì  $  1              [  Ò  [  /              y  h  `  h  ;              è  y!  m  y!  G  %            °!  T#  ~!  T#  W  &            Ö#  8%  Y#  8%  g  /            j%  Â&  =%  Â&  w  0            	'  ı'  Í&  ı'  á  "             !(  )  ˙'  )  í  *             A)  5*  )  5*  ù  *             V*  ,  :*  ,  ®               .,  -  ,  -  ∏               1-  ".  -  ".  √               C.  3/  '.  3/  Œ               X/  L0  8/  L0  Ÿ  #             j0  1  Q0  1  ‰               ;1  "2  1  "2  Ô                C2  )3  '2  )3  ˙               A3  ˚4  .3  ˚4                5  —6   5  —6                Ù6  J7  ÷6  J7  #  !            g7  ø7  O7  ø7  '              Ò7  L8  √7  L8  +  1            l8  ìD  P8  ìD  /              ¥D  |P  òD  |P  Z              •P  X  ÅP  X  Ö  '            !X  Ü_  	X  Ü_  ù              ø_  8g  ã_  8g  µ  7            ^g  ïn  >g  ïn  Œ  #            æn  –z  ön  –z  È  '            h{  ¶Å  C{  ¶Å    (            “Å  é  ´Å  é  (  *            :é  ∞î  é  ∞î  S  +            –î  æï  µî  æï  f               ÷ï  ˛ï  √ï  ˛ï  j              ñ  ]ñ  ñ  ]ñ  n              sñ  	õ  bñ  	õ  r              $õ  ñú  õ  ñú  ï              ∏ú  xù  õú  xù  ©               ¢ù  ’û  |ù  ’û  ±  )          ÄÓû  æ≈  Ÿû  æ≈  ∫            Ä+†  §≈  #†  §≈  «               3´  “¨  &´  “¨  ˘              5Ø  0±  (Ø  0±                 Ü∞  ‘∞  ~∞  ‘∞    A          Ä∫∂  g≈  ≤∂  g≈  ?  -             Iø  ¡  <ø  ¡  a               ¢¡  L√  ï¡  L√  p               –√  9≈  √√  9≈               5°›YÕRå‚§m      gáíIgáíIG≈.Sgá†Y   t    O^partitionKey=%28https%2Chelsinki.fi%29,:https://s3.amazonaws.com/browzine-adapters/primo/browzine-primo-adapter.js necko:classified 1 strongly-framed 1 security-info FnhllAKWRHGAlo+ESXykKAAAAAAAAAAAwAAAAAAAAEaphjojH6pBabDSgSnsfLHeAAAAAgAAAAAAAAAAAAAAAAAAAAEAOQFmCjImkVxP+7sgiYWmMt8FvcOXmlQiTNWFiWlrbpbqgwAAAAAAAAhAMIIIPDCCBySgAwIBAgIQD/CWznQSJrTnMP3Zzx6aVzANBgkqhkiG9w0BAQsFADA8MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRwwGgYDVQQDExNBbWF6b24gUlNBIDIwNDggTTAxMB4XDTI0MTExODAwMDAwMFoXDTI1MTEwNzIzNTk1OVowGzEZMBcGA1UEAxMQczMuYW1hem9uYXdzLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMGXtc3i+g97RMURv3p1tSCKxTnUdTIfQM2z8WjC92XEkSFnIl95srB/eNy5OCvtzjn34fGOpYYgK16c1Cpach+MYURbht/JgMupGBmsEsID+2dLE4c7SDceU0yUqo/1r9L3fRcdsYs2OLKRQ8lZF3K6ivNHQoG3/0VzW8aKa83dd47YhplSOIw8nkpU63KKTW2GjG0A7F/ZYxJ1dJQ6h84unppFwycIhzUNdSZhrD5DWtl8Geh5dCww1xNgwYAmmXHfZa34cH2t+bqBEiJXR2IfCGaaKSHOZfYUJchZFNJa4Bje9zIb2pUm2iagwpYFXQGImQhojulqSN9UqKgUJ+cCAwEAAaOCBVkwggVVMB8GA1UdIwQYMBaAFIG4DmOKiRIY5fo7O1CVn+blkBOFMB0GA1UdDgQWBBThl2yTRVylV6xJH/pxp31THtCCZzCCAokGA1UdEQSCAoAwggJ8ghBzMy5hbWF6b25hd3MuY29tghIqLnMzLmFtYXpvbmF3cy5jb22CJiouczMuZHVhbHN0YWNrLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgiRzMy5kdWFsc3RhY2sudXMtZWFzdC0xLmFtYXpvbmF3cy5jb22CHCouczMudXMtZWFzdC0xLmFtYXpvbmF3cy5jb22CGnMzLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgiQqLnMzLWNvbnRyb2wudXMtZWFzdC0xLmFtYXpvbmF3cy5jb22CInMzLWNvbnRyb2wudXMtZWFzdC0xLmFtYXpvbmF3cy5jb22CLiouczMtY29udHJvbC5kdWFsc3RhY2sudXMtZWFzdC0xLmFtYXpvbmF3cy5jb22CLHMzLWNvbnRyb2wuZHVhbHN0YWNrLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgigqLnMzLWFjY2Vzc3BvaW50LnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgjIqLnMzLWFjY2Vzc3BvaW50LmR1YWxzdGFjay51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYInKi5zMy1kZXByZWNhdGVkLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgiVzMy1kZXByZWNhdGVkLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tghtzMy1leHRlcm5hbC0xLmFtYXpvbmF3cy5jb22CHSouczMtZXh0ZXJuYWwtMS5hbWF6b25hd3MuY29tghtzMy1leHRlcm5hbC0yLmFtYXpvbmF3cy5jb22CHSouczMtZXh0ZXJuYWwtMi5hbWF6b25hd3MuY29tMBMGA1UdIAQMMAowCAYGZ4EMAQIBMA4GA1UdDwEB/wQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwOwYDVR0fBDQwMjAwoC6gLIYqaHR0cDovL2NybC5yMm0wMS5hbWF6b250cnVzdC5jb20vcjJtMDEuY3JsMHUGCCsGAQUFBwEBBGkwZzAtBggrBgEFBQcwAYYhaHR0cDovL29jc3AucjJtMDEuYW1hem9udHJ1c3QuY29tMDYGCCsGAQUFBzAChipodHRwOi8vY3J0LnIybTAxLmFtYXpvbnRydXN0LmNvbS9yMm0wMS5jZXIwDAYDVR0TAQH/BAIwADCCAX4GCisGAQQB1nkCBAIEggFuBIIBagFoAHYAEvFONL1TckyEBhnDjz96E/jntWKHiJxtMAWE6+WGJjoAAAGTQIHVbAAABAMARzBFAiBYBQq6o1CtEw/NDrn0FmxpQzkCHg5hEeiNSDxqFb7YugIhAKr8P2Ua64Obt4Kp7JvT93aGBVyNG0zRATXbPXs7IteRAHUA5tIxY0B3jMEQQQbXcbnOwdJA9paEhvu6hzId/R43jlAAAAGTQIHVJQAABAMARjBEAiBvKVcrPsAr5hloptd0ba7TseDiz+TFlLkcppIu6Y2LtgIgPkbqULjBDM8VGQ5E6T+waMGgtGXtrOoKhxGamrWGOmAAdwDM+w9qhXEJZf6Vm1PO6bJ8IumFXA2XjbapflTA/kwNsAAAAZNAgdUOAAAEAwBIMEYCIQC3psaTzQ9+ld/rzlJM19qhByd2my1JJZqmqzIjesj3nAIhAOlkpk5a81kVwaBDiwfDsKPnI7JXZvXQziZvsMmjP1raMA0GCSqGSIb3DQEBCwUAA4IBAQDVWb8RpOO7jB8pyVtW2tXevgDS+VH+D2WO9PAYdc8CuEAFb5t/RKdkSlEmb6GLGewQi+uY31PP4YpKw7SOKGCMHhMlU1nxnAmtBcwVdeRXrfXRtwaRQ0DrJLYFkfmFctbMWLWYFMHya+LSu/lovjND+rk3wkDqQXqy5BwV0hynDebWDd5uzY05abSNS4lyAbx/nQT8ly3j/3FG1aYoytLxYMrsPTWOR915mjEoPCDpMgeZfBzYL0UuZNACMQg40Vb9OFsK2nY8q6C8urL5DMg254cDGLBPllRXaVL2w9kdWKMgy9rYrr0+2PomOcvDqL8SHxn0/w9bRzCloMGPsKiMEwEABAAAAAAAAQEAAAAAAAAEUDI1NgAAAA5SU0EtUFNTLVNIQTI1NgADZgoyJpFcT/u7IImFpjLfBb3Dl5pUIkzVhYlpa26W6oMAAAAAAAAIQDCCCDwwggckoAMCAQICEA/wls50Eia05zD92c8emlcwDQYJKoZIhvcNAQELBQAwPDELMAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEcMBoGA1UEAxMTQW1hem9uIFJTQSAyMDQ4IE0wMTAeFw0yNDExMTgwMDAwMDBaFw0yNTExMDcyMzU5NTlaMBsxGTAXBgNVBAMTEHMzLmFtYXpvbmF3cy5jb20wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDBl7XN4voPe0TFEb96dbUgisU51HUyH0DNs/FowvdlxJEhZyJfebKwf3jcuTgr7c459+HxjqWGICtenNQqWnIfjGFEW4bfyYDLqRgZrBLCA/tnSxOHO0g3HlNMlKqP9a/S930XHbGLNjiykUPJWRdyuorzR0KBt/9Fc1vGimvN3XeO2IaZUjiMPJ5KVOtyik1thoxtAOxf2WMSdXSUOofOLp6aRcMnCIc1DXUmYaw+Q1rZfBnoeXQsMNcTYMGAJplx32Wt+HB9rfm6gRIiV0diHwhmmikhzmX2FCXIWRTSWuAY3vcyG9qVJtomoMKWBV0BiJkIaI7pakjfVKioFCfnAgMBAAGjggVZMIIFVTAfBgNVHSMEGDAWgBSBuA5jiokSGOX6OztQlZ/m5ZAThTAdBgNVHQ4EFgQU4Zdsk0VcpVesSR/6cad9Ux7QgmcwggKJBgNVHREEggKAMIICfIIQczMuYW1hem9uYXdzLmNvbYISKi5zMy5hbWF6b25hd3MuY29tgiYqLnMzLmR1YWxzdGFjay51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYIkczMuZHVhbHN0YWNrLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tghwqLnMzLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tghpzMy51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYIkKi5zMy1jb250cm9sLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgiJzMy1jb250cm9sLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgi4qLnMzLWNvbnRyb2wuZHVhbHN0YWNrLnVzLWVhc3QtMS5hbWF6b25hd3MuY29tgixzMy1jb250cm9sLmR1YWxzdGFjay51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYIoKi5zMy1hY2Nlc3Nwb2ludC51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYIyKi5zMy1hY2Nlc3Nwb2ludC5kdWFsc3RhY2sudXMtZWFzdC0xLmFtYXpvbmF3cy5jb22CJyouczMtZGVwcmVjYXRlZC51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYIlczMtZGVwcmVjYXRlZC51cy1lYXN0LTEuYW1hem9uYXdzLmNvbYIbczMtZXh0ZXJuYWwtMS5hbWF6b25hd3MuY29tgh0qLnMzLWV4dGVybmFsLTEuYW1hem9uYXdzLmNvbYIbczMtZXh0ZXJuYWwtMi5hbWF6b25hd3MuY29tgh0qLnMzLWV4dGVybmFsLTIuYW1hem9uYXdzLmNvbTATBgNVHSAEDDAKMAgGBmeBDAECATAOBgNVHQ8BAf8EBAMCBaAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMDsGA1UdHwQ0MDIwMKAuoCyGKmh0dHA6Ly9jcmwucjJtMDEuYW1hem9udHJ1c3QuY29tL3IybTAxLmNybDB1BggrBgEFBQcBAQRpMGcwLQYIKwYBBQUHMAGGIWh0dHA6Ly9vY3NwLnIybTAxLmFtYXpvbnRydXN0LmNvbTA2BggrBgEFBQcwAoYqaHR0cDovL2NydC5yMm0wMS5hbWF6b250cnVzdC5jb20vcjJtMDEuY2VyMAwGA1UdEwEB/wQCMAAwggF+BgorBgEEAdZ5AgQCBIIBbgSCAWoBaAB2ABLxTjS9U3JMhAYZw48/ehP457Vih4icbTAFhOvlhiY6AAABk0CB1WwAAAQDAEcwRQIgWAUKuqNQrRMPzQ659BZsaUM5Ah4OYRHojUg8ahW+2LoCIQCq/D9lGuuDm7eCqeyb0/d2hgVcjRtM0QE12z17OyLXkQB1AObSMWNAd4zBEEEG13G5zsHSQPaWhIb7uocyHf0eN45QAAABk0CB1SUAAAQDAEYwRAIgbylXKz7AK+YZaKbXdG2u07Hg4s/kxZS5HKaSLumNi7YCID5G6lC4wQzPFRkOROk/sGjBoLRl7azqCocRmpq1hjpgAHcAzPsPaoVxCWX+lZtTzumyfCLphVwNl422qX5UwP5MDbAAAAGTQIHVDgAABAMASDBGAiEAt6bGk80PfpXf685STNfaoQcndpstSSWapqsyI3rI95wCIQDpZKZOWvNZFcGgQ4sHw7Cj5yOyV2b10M4mb7DJoz9a2jANBgkqhkiG9w0BAQsFAAOCAQEA1Vm/EaTju4wfKclbVtrV3r4A0vlR/g9ljvTwGHXPArhABW+bf0SnZEpRJm+hixnsEIvrmN9Tz+GKSsO0jihgjB4TJVNZ8ZwJrQXMFXXkV6310bcGkUNA6yS2BZH5hXLWzFi1mBTB8mvi0rv5aL4zQ/q5N8JA6kF6suQcFdIcpw3m1g3ebs2NOWm0jUuJcgG8f50E/Jct4/9xRtWmKMrS8WDK7D01jkfdeZoxKDwg6TIHmXwc2C9FLmTQAjEIONFW/ThbCtp2PKugvLqy+QzINueHAxiwT5ZUV2lS9sPZHVijIMva2K69Ptj6JjnLw6i/Eh8Z9P8PW0cwpaDBj7CojGYKMiaRXE/7uyCJhaYy3wW9w5eaVCJM1YWJaWtuluqDAAAAAAAABGIwggReMIIDRqADAgECAhMHcxI4C51miKM7Htm/nM2mjg4PMA0GCSqGSIb3DQEBCwUAMDkxCzAJBgNVBAYTAlVTMQ8wDQYDVQQKEwZBbWF6b24xGTAXBgNVBAMTEEFtYXpvbiBSb290IENBIDEwHhcNMjIwODIzMjIyMTI4WhcNMzAwODIzMjIyMTI4WjA8MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRwwGgYDVQQDExNBbWF6b24gUlNBIDIwNDggTTAxMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA63EsqcsfiCiSMjCvilcPeLc3JZVVh6xnXJfTIsjaohRna3zwZ9riAyqzVhJdxrVH+WcIp5N6lZIYD7T5+RA2mn8vgLZPuhNOx11THuDdljMHINOWvBLkdFBCoQUTc7VPm0Qk/i1/7bwihew2ITOXdQbOJxiC3OPZxYIHjV4mASYmZx/ZPxPPMrprrXhk/Kr/DgI8B9+cBXhyjP3qdbcDKITa6G4HjNBQhe+BVLJxbuxtYu+PlMNe6cSk0JHALiSRmMruuiWO1PZxtvtbazgGSDdHjYbc8uoG+3Y3fZ7/Qk5NWIKTz+JxwnixeqtLW5Q3iIHk2a8krvhyxWX7S7RR5wIDAQABo4IBWjCCAVYwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCMB0GA1UdDgQWBBSBuA5jiokSGOX6OztQlZ/m5ZAThTAfBgNVHSMEGDAWgBSEGMyFNOy8DJSULghZnMeyEE4KCDB7BggrBgEFBQcBAQRvMG0wLwYIKwYBBQUHMAGGI2h0dHA6Ly9vY3NwLnJvb3RjYTEuYW1hem9udHJ1c3QuY29tMDoGCCsGAQUFBzAChi5odHRwOi8vY3J0LnJvb3RjYTEuYW1hem9udHJ1c3QuY29tL3Jvb3RjYTEuY2VyMD8GA1UdHwQ4MDYwNKAyoDCGLmh0dHA6Ly9jcmwucm9vdGNhMS5hbWF6b250cnVzdC5jb20vcm9vdGNhMS5jcmwwEwYDVR0gBAwwCjAIBgZngQwBAgEwDQYJKoZIhvcNAQELBQADggEBAK0A3gIFIy4GMmK0a7GUFuQRQN4r+lnBNe/gqo8rQbnR84c5AB3yPbWnRwwGBsaR8wdXAtTtvRfBkJq/SHWiB08w3UpqQrUNPRXAD/6EW8Y8mcxXUrHYbhLVlpKTS5TlB+iJgghqejTUnmThPYdqkpCaY6FL+I+26jTTBb4gwt4G4oyfc4ufTTmFys4ZNp2FyZ7J+FA/tn6Ioe/KhAaLULQKXKYcRPH9yGFAYPJhJaoH9MfCc3XkDAtCjQTlX0RImVt7iYGWp4idSw1i6ATE1/606LJtyuzAHLw4Wx3fhc5beuNJS2y5p930BbJJreHFFGvCzOvNf9ZYabrDIH5/sLhmCjImkVxP+7sgiYWmMt8FvcOXmlQiTNWFiWlrbpbqgwAAAAAAAANFMIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsFADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTELMAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJvb3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXjca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qwIFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQmjgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUAA4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDIU5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUsN+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vvo/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpyrqXRfboQnoZsG4q5WTP468SQvvG5AAAAAQAAAAhodHRwLzEuMQABAAAAAE50bHNmbGFnczB4MDAwMDAwMDA6czMuYW1hem9uYXdzLmNvbTo0NDNecGFydGl0aW9uS2V5PSUyOGh0dHBzJTJDaGVsc2lua2kuZmklMjkAAA== request-method GET response-head HTTP/1.1 200 OK
+ETag: "caec25561cd7bffd0a2a7a9570c97ef9"
+x-amz-server-side-encryption: AES256
+Accept-Ranges: bytes
+Content-Type: application/javascript; charset=utf-8
+Content-Length: 53065
+x-amz-id-2: HcfEEct4fOnfR13jhiR1HqupW/ixDMjK6g2VLmySJqoSi607hCZSBjNyHd+oE4DYuX4OGFIrQgg=
+x-amz-request-id: KXFX10QAFM0HKNNM
+Date: Wed, 15 Jan 2025 10:47:38 GMT
+Last-Modified: Fri, 13 Dec 2024 18:06:56 GMT
+Cache-Control: max-age=3600
+Server: AmazonS3
+ original-response-headers x-amz-id-2: LZzTaLvXy7HNHrU6MwbtImmxC/UA26PpEqh5ZBVFRoPDMVZA3h2kmlesnxH/qHqYe2EOrFfHA4l+48rFCaPOjmGnQ5nKkMwO
+x-amz-request-id: JAKB0GCZ87S3G8EM
+Date: Thu, 02 Jan 2025 14:36:19 GMT
+Last-Modified: Fri, 13 Dec 2024 18:06:56 GMT
+ETag: "caec25561cd7bffd0a2a7a9570c97ef9"
+x-amz-server-side-encryption: AES256
+Cache-Control: max-age=3600
+Accept-Ranges: bytes
+Content-Type: application/javascript; charset=utf-8
+Content-Length: 53065
+Server: AmazonS3
+ ctid 2 uncompressed-len 0 net-response-time-onstart 880 net-response-time-onstop 1089 alt-data 1;53065,javascript/moz-script-bytecode-20241209150345-8l alt-data-from-child 1  h=
