@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 Olipa kerran pieni koira
+=======
+Olipa kerran iso koira.
+>>>>>>> 09a97012 (Muokattu viimeistä lausetta)
